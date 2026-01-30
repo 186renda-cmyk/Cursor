@@ -18,7 +18,7 @@ class AuditConfig:
     def __init__(self):
         self.base_url = None
         self.keywords = []
-        self.ignore_paths = ['.git', 'node_modules', '__pycache__', '.DS_Store']
+        self.ignore_paths = ['.git', 'node_modules', '__pycache__', '.DS_Store', 'MasterTool']
         self.ignore_urls = ['/go/', 'cdn-cgi', 'javascript:', 'mailto:', 'tel:'] # Removed '#'
         self.ignore_files = ['google', '404.html']
         self._load_from_index()

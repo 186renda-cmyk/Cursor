@@ -4,21 +4,23 @@
   <meta charset="utf-8"/>
   <meta content="width=device-width, initial-scale=1" name="viewport"/>
   <title>
-   Cursor 开发者博客 - 技术干货与使用教程 - Cursor-VIP.pro
+   Cursor 开发者博客 - 技术干货与使用教程
   </title>
   <meta content="Cursor-VIP.pro 官方博客，分享 Cursor AI 编辑器的高级使用技巧、技术原理揭秘以及最新行业动态。助您掌握 AI 编程的未来。" name="description"/>
   <meta content="cursor, ai, code editor" name="keywords"/>
   <link href="https://cursor-vip.pro/blog/index" rel="canonical"/>
   <meta content="index, follow" name="robots"/>
   <meta content="zh-cn" http-equiv="content-language"/>
-  <meta content="Cursor 开发者博客 - 技术干货与使用教程 - Cursor-VIP.pro" property="og:title"/>
+  <meta content="Cursor 开发者博客 - 技术干货与使用教程" property="og:title"/>
   <meta content="Cursor-VIP.pro 官方博客，分享 Cursor AI 编辑器的高级使用技巧、技术原理揭秘以及最新行业动态。助您掌握 AI 编程的未来。" property="og:description"/>
   <meta content="https://cursor-vip.pro/blog/index" property="og:url"/>
   <meta content="Cursor-VIP.pro" property="og:site_name"/>
   <meta content="https://cursor-vip.pro/assets/og.png" property="og:image"/>
   <meta content="website" property="og:type"/>
+  <meta content="Cursor-VIP Team" name="author"/>
+  <meta content="2026-01-30" property="article:published_time"/>
   <meta content="summary_large_image" name="twitter:card"/>
-  <meta content="Cursor 开发者博客 - 技术干货与使用教程 - Cursor-VIP.pro" name="twitter:title"/>
+  <meta content="Cursor 开发者博客 - 技术干货与使用教程" name="twitter:title"/>
   <meta content="Cursor-VIP.pro 官方博客，分享 Cursor AI 编辑器的高级使用技巧、技术原理揭秘以及最新行业动态。助您掌握 AI 编程的未来。" name="twitter:description"/>
   <meta content="https://cursor-vip.pro/assets/og.png" name="twitter:image"/>
   <link href="data:image/svg+xml,&lt;svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22&gt;&lt;text y=%22.9em%22 font-size=%2290%22&gt;⚡&lt;/text&gt;&lt;/svg&gt;" rel="icon" type="image/svg+xml"/>
@@ -46,7 +48,7 @@
    {
   "@context": "https://schema.org",
   "@type": "BlogPosting",
-  "headline": "Cursor 开发者博客 - 技术干货与使用教程 - Cursor-VIP.pro",
+  "headline": "Cursor 开发者博客 - 技术干货与使用教程",
   "description": "Cursor-VIP.pro 官方博客，分享 Cursor AI 编辑器的高级使用技巧、技术原理揭秘以及最新行业动态。助您掌握 AI 编程的未来。",
   "mainEntityOfPage": {
     "@type": "WebPage",
@@ -64,7 +66,7 @@
       "url": "https://cursor-vip.pro/logo.svg"
     }
   },
-  "datePublished": "2026-01-29"
+  "datePublished": "2026-01-30"
 }
   </script>
   <script type="application/ld+json">
@@ -87,7 +89,7 @@
     {
       "@type": "ListItem",
       "position": 3,
-      "name": "Cursor 开发者博客 - 技术干货与使用教程 - Cursor-VIP.pro",
+      "name": "Cursor 开发者博客 - 技术干货与使用教程",
       "item": "https://cursor-vip.pro/blog/index"
     }
   ]
@@ -121,6 +123,9 @@
       <a class="text-sm font-medium text-slate-400 hover:text-white transition relative group" href="/#features">
        核心优势
       </a>
+      <a class="text-sm font-medium text-slate-400 hover:text-white transition relative group" href="/blog/">
+       教程资源
+      </a>
       <a class="text-sm font-medium text-slate-400 hover:text-white transition relative group" href="/#faq">
        常见问题
       </a>
@@ -143,6 +148,22 @@
   </nav>
   <!-- Nav -->
   <main class="pt-32 pb-20 lg:pt-48 flex-grow">
+   <nav aria-label="Breadcrumb" class="max-w-7xl mx-auto px-6 mb-8">
+    <ol class="flex items-center space-x-2 text-sm text-slate-400">
+     <li>
+      <a class="hover:text-white transition" href="/">
+       首页
+      </a>
+     </li>
+     <li>
+      <i class="fa-solid fa-chevron-right text-xs opacity-50">
+      </i>
+     </li>
+     <li aria-current="page" class="text-slate-200 font-medium truncate">
+      博客
+     </li>
+    </ol>
+   </nav>
    <!-- Hero Section -->
    <header class="max-w-4xl mx-auto px-6 text-center mb-20 relative">
     <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-blue-600/20 blur-[100px] rounded-full -z-10">
@@ -159,37 +180,35 @@
    </header>
    <!-- Blog List -->
    <div class="max-w-5xl mx-auto px-6">
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-     <!-- Article Card 1 -->
-     <a class="block group" href="/blog/cursor-unlimited">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8" id="blog-posts-container">
+     <a class="block group" href="/blog/cursor-usage-check">
       <article class="glass-card h-full rounded-2xl overflow-hidden flex flex-col">
        <div class="h-48 bg-slate-900/50 relative overflow-hidden">
-        <!-- Placeholder for article image, using CSS pattern for now -->
         <div class="absolute inset-0 bg-gradient-to-br from-blue-900/40 to-slate-900">
         </div>
         <div class="absolute inset-0 flex items-center justify-center">
-         <i class="fa-solid fa-infinity text-6xl text-blue-500/20 group-hover:text-blue-500/40 transition duration-500">
+         <i class="fa-solid fa-chart-pie text-6xl text-blue-500/20 group-hover:text-blue-500/40 transition duration-500">
          </i>
         </div>
         <div class="absolute top-4 left-4">
          <span class="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/20 text-blue-300 text-xs font-mono">
-          技术揭秘
+          技术干货
          </span>
         </div>
        </div>
        <div class="p-6 flex flex-col flex-grow">
         <h2 class="text-xl font-bold text-white mb-3 group-hover:text-blue-400 transition">
-         Cursor 无限续杯：原理、方法与潜在风险全解析
+         Cursor额度怎么看？2种方法实时查询余额与用量详解
         </h2>
         <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow">
-         揭秘市面上流行的“无限续杯”技术（邮箱注册法、机器码重置）背后的原理。虽然看似免费，但背后隐藏着不为人知的风险...
+         找不到Cursor额度在哪看？本文详解如何在App内开启实时用量显示，以及如何通过网页版Dashboard查看详细账单。...
         </p>
         <div class="flex items-center justify-between text-xs text-slate-500 border-t border-white/5 pt-4">
          <div class="flex items-center gap-2">
           <i class="fa-regular fa-calendar">
           </i>
           <span>
-           2026-01-29
+           2026-01-30
           </span>
          </div>
          <div class="flex items-center gap-1 group-hover:translate-x-1 transition">
@@ -203,7 +222,88 @@
        </div>
       </article>
      </a>
-     <!-- More placeholders can be added here -->
+     <a class="block group" href="/blog/cursor-chinese-settings">
+      <article class="glass-card h-full rounded-2xl overflow-hidden flex flex-col">
+       <div class="h-48 bg-slate-900/50 relative overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-br from-blue-900/40 to-slate-900">
+        </div>
+        <div class="absolute inset-0 flex items-center justify-center">
+         <i class="fa-solid fa-code text-6xl text-blue-500/20 group-hover:text-blue-500/40 transition duration-500">
+         </i>
+        </div>
+        <div class="absolute top-4 left-4">
+         <span class="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/20 text-blue-300 text-xs font-mono">
+          技术干货
+         </span>
+        </div>
+       </div>
+       <div class="p-6 flex flex-col flex-grow">
+        <h2 class="text-xl font-bold text-white mb-3 group-hover:text-blue-400 transition">
+         Cursor怎么设置中文？界面汉化与AI对话语言设置全攻略
+        </h2>
+        <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow">
+         Cursor全是英文看不懂？本文手把手教你如何安装中文语言包汉化界面，以及设置AI始终用中文回答。附带VS Code键位...
+        </p>
+        <div class="flex items-center justify-between text-xs text-slate-500 border-t border-white/5 pt-4">
+         <div class="flex items-center gap-2">
+          <i class="fa-regular fa-calendar">
+          </i>
+          <span>
+           2026-01-30
+          </span>
+         </div>
+         <div class="flex items-center gap-1 group-hover:translate-x-1 transition">
+          <span>
+           阅读全文
+          </span>
+          <i class="fa-solid fa-arrow-right">
+          </i>
+         </div>
+        </div>
+       </div>
+      </article>
+     </a>
+     <a class="block group" href="/blog/cursor-unlimited">
+      <article class="glass-card h-full rounded-2xl overflow-hidden flex flex-col">
+       <div class="h-48 bg-slate-900/50 relative overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-br from-blue-900/40 to-slate-900">
+        </div>
+        <div class="absolute inset-0 flex items-center justify-center">
+         <i class="fa-solid fa-infinity text-6xl text-blue-500/20 group-hover:text-blue-500/40 transition duration-500">
+         </i>
+        </div>
+        <div class="absolute top-4 left-4">
+         <span class="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/20 text-blue-300 text-xs font-mono">
+          技术干货
+         </span>
+        </div>
+       </div>
+       <div class="p-6 flex flex-col flex-grow">
+        <h2 class="text-xl font-bold text-white mb-3 group-hover:text-blue-400 transition">
+         Cursor无限续杯教程与原理解析：风险与替代方案
+        </h2>
+        <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow">
+         深度解析Cursor无限续杯的原理与方法（邮箱注册法、机器码重置脚本），揭示其潜在风险与模型限制。为您提供稳定、安全的C...
+        </p>
+        <div class="flex items-center justify-between text-xs text-slate-500 border-t border-white/5 pt-4">
+         <div class="flex items-center gap-2">
+          <i class="fa-regular fa-calendar">
+          </i>
+          <span>
+           2025-12-12
+          </span>
+         </div>
+         <div class="flex items-center gap-1 group-hover:translate-x-1 transition">
+          <span>
+           阅读全文
+          </span>
+          <i class="fa-solid fa-arrow-right">
+          </i>
+         </div>
+        </div>
+       </div>
+      </article>
+     </a>
     </div>
    </div>
   </main>

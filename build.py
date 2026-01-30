@@ -97,10 +97,11 @@ class SmartExtractor:
                 tag['src'] = '/' + src
 
 class HeadReconstructor:
-    def __init__(self, soup, metadata, favicons):
+    def __init__(self, soup, metadata, favicons, latest_posts=None):
         self.soup = soup
         self.metadata = metadata
         self.favicons = favicons
+        self.latest_posts = latest_posts or []
 
     def reconstruct(self):
         head = self.soup.find('head')
@@ -157,6 +158,12 @@ class HeadReconstructor:
         head.append(self.soup.new_tag('meta', attrs={"property": "og:image", "content": "https://cursor-vip.pro/assets/og.png"}))
         head.append(self.soup.new_tag('meta', attrs={"property": "og:type", "content": "website"}))
         
+        # SEO: Author and Time
+        if self.metadata.get('author'):
+            head.append(self.soup.new_tag('meta', attrs={"name": "author", "content": self.metadata.get('author')}))
+        if self.metadata.get('date') and self.metadata.get('type') == 'blog':
+            head.append(self.soup.new_tag('meta', attrs={"property": "article:published_time", "content": self.metadata.get('date')}))
+
         head.append(self.soup.new_tag('meta', attrs={"name": "twitter:card", "content": "summary_large_image"}))
         head.append(self.soup.new_tag('meta', attrs={"name": "twitter:title", "content": self.metadata.get('title')}))
         head.append(self.soup.new_tag('meta', attrs={"name": "twitter:description", "content": self.metadata.get('description')}))
@@ -314,7 +321,7 @@ class SchemaGenerator:
                     "url": f"{self.base_url}/logo.svg"
                 }
             },
-            "datePublished": datetime.date.today().isoformat()
+            "datePublished": self.metadata.get('date', datetime.date.today().isoformat())
         }
 
         breadcrumb = {
@@ -386,7 +393,7 @@ class ContentInjector:
         # Just append to body is usually fine for footer
         body.append(footer_html)
 
-    def inject_breadcrumbs(self, title):
+    def inject_breadcrumbs(self, title, is_blog_index=False):
         main = self.soup.find('main')
         if not main: return
         
@@ -395,49 +402,316 @@ class ContentInjector:
         if existing_bc:
             existing_bc.decompose()
             
-        bc_html = f"""
-        <nav aria-label="Breadcrumb" class="max-w-7xl mx-auto px-6 mb-8 pt-6">
-          <ol class="flex items-center space-x-2 text-sm text-slate-400">
-            <li><a href="/" class="hover:text-white transition">首页</a></li>
-            <li><i class="fa-solid fa-chevron-right text-xs opacity-50"></i></li>
-            <li><a href="/blog/" class="hover:text-white transition">博客</a></li>
-            <li><i class="fa-solid fa-chevron-right text-xs opacity-50"></i></li>
-            <li class="text-slate-200 font-medium truncate" aria-current="page">{title}</li>
-          </ol>
-        </nav>
-        """
+        if is_blog_index:
+             bc_html = f"""
+            <nav aria-label="Breadcrumb" class="max-w-7xl mx-auto px-6 mb-8">
+              <ol class="flex items-center space-x-2 text-sm text-slate-400">
+                <li><a href="/" class="hover:text-white transition">首页</a></li>
+                <li><i class="fa-solid fa-chevron-right text-xs opacity-50"></i></li>
+                <li class="text-slate-200 font-medium truncate" aria-current="page">博客</li>
+              </ol>
+            </nav>
+            """
+        else:
+            bc_html = f"""
+            <nav aria-label="Breadcrumb" class="max-w-7xl mx-auto px-6 mb-8">
+              <ol class="flex items-center space-x-2 text-sm text-slate-400">
+                <li><a href="/" class="hover:text-white transition">首页</a></li>
+                <li><i class="fa-solid fa-chevron-right text-xs opacity-50"></i></li>
+                <li><a href="/blog/" class="hover:text-white transition">博客</a></li>
+                <li><i class="fa-solid fa-chevron-right text-xs opacity-50"></i></li>
+                <li class="text-slate-200 font-medium truncate" aria-current="page">{title}</li>
+              </ol>
+            </nav>
+            """
+
         bc_soup = BeautifulSoup(bc_html, 'html.parser')
         
         # Insert at the beginning of main
         main.insert(0, bc_soup)
 
-    def inject_recommended(self):
+    def inject_article_meta(self, date, author="Cursor-VIP Team"):
+        header = self.soup.find('header')
+        if not header: return
+
+        # Check if we already injected it to avoid duplicates
+        existing_meta = header.find('div', id="article-meta")
+        if existing_meta:
+            existing_meta.decompose()
+
+        # Create meta HTML
+        meta_html = f"""
+        <div id="article-meta" class="flex items-center justify-center gap-6 text-sm text-slate-400 mt-4 font-mono">
+            <div class="flex items-center gap-2">
+                <i class="fa-regular fa-calendar text-blue-400"></i>
+                <time datetime="{date}">{date}</time>
+            </div>
+            <div class="flex items-center gap-2">
+                <i class="fa-regular fa-user text-purple-400"></i>
+                <span>{author}</span>
+            </div>
+        </div>
+        """
+        meta_soup = BeautifulSoup(meta_html, 'html.parser')
+        
+        # Append to header
+        header.append(meta_soup)
+
+    def inject_recommended(self, posts, current_url):
         article = self.soup.find('article')
-        if article:
-            # Check if recommended section exists
-            rec = article.find(id="recommended-reading")
-            if not rec:
-                rec_html = """
-                <div id="recommended-reading" class="mt-12 pt-8 border-t border-slate-800">
-                    <h3 class="text-xl font-bold text-white mb-4">推荐阅读</h3>
-                    <ul class="space-y-2 text-slate-400">
-                        <li><a href="/" class="hover:text-blue-400">返回首页</a></li>
-                        <!-- Dynamic links could be added here -->
-                    </ul>
+        if not article: return
+        
+        # Check if recommended section exists (by id)
+        rec = article.find(id="recommended-reading")
+        if rec:
+            rec.decompose() # Clean existing
+            
+        # Also check for any div that looks like a manual recommended section (e.g. contains "推荐阅读" h3)
+        # This handles the manual one in cursor-chinese-settings.html
+        for h3 in article.find_all('h3'):
+            if "推荐阅读" in h3.get_text():
+                # Find the parent container (likely a div) and remove it
+                # We need to be careful not to remove the main article content if structure is different
+                parent = h3.parent
+                if parent.name == 'div' and ('bg-slate-900/50' in str(parent.get('class', [])) or 'border-t' in str(parent.get('class', []))):
+                     parent.decompose()
+                elif parent.name == 'div':
+                     # Try one more level up if it's just a wrapper
+                     parent.decompose()
+
+        # Filter posts
+        # 1. Must be blog type
+        # 2. Must not be current page
+        # 3. Must not be index
+        recommendations = [p for p in posts if p['type'] == 'blog' and p['url'] != current_url and not p['url'].endswith('/index') and 'index.html' not in p['url']]
+        
+        # Sort by date (newest first)
+        recommendations.sort(key=lambda x: x['date'], reverse=True)
+        
+        # Limit to 3
+        recommendations = recommendations[:3]
+        
+        if not recommendations: return
+
+        # Create Container
+        rec_html = """
+        <div id="recommended-reading" class="mt-16 pt-10 border-t border-white/10">
+            <h3 class="text-2xl font-bold text-white mb-8">推荐阅读</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Cards injected below -->
+            </div>
+        </div>
+        """
+        rec_soup = BeautifulSoup(rec_html, 'html.parser')
+        grid_container = rec_soup.find('div', class_="grid")
+        
+        for post in recommendations:
+             # Default values
+             title = post.get('title', 'Untitled')
+             # Clean title
+             if " - " in title:
+                 title = title.split(" - ")[0]
+             
+             desc = post.get('description', '')
+             url = post.get('url', '#')
+             
+             # Convert to root-relative path if internal
+             if url.startswith("https://cursor-vip.pro"):
+                 url = url.replace("https://cursor-vip.pro", "")
+                 if not url: url = "/"
+             
+             date = post.get('date', '')
+             tag = post.get('tag', 'Tech')
+             
+             # Icon mapping
+             icon = "fa-code"
+             if "额度" in title: icon = "fa-chart-pie"
+             elif "无限" in title: icon = "fa-infinity"
+             
+             # Truncate description more aggressively for small cards
+             if len(desc) > 40: desc = desc[:40] + '...'
+             
+             card_html = f"""
+             <a href="{url}" class="block group h-full">
+              <article class="glass-card h-full rounded-xl overflow-hidden flex flex-col bg-[#0B0F19] border border-white/10 hover:border-blue-500/30 transition duration-300">
+               <div class="h-32 bg-slate-900/50 relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-slate-900"></div>
+                <div class="absolute inset-0 flex items-center justify-center">
+                 <i class="fa-solid {icon} text-4xl text-blue-500/20 group-hover:text-blue-500/40 transition duration-500"></i>
                 </div>
-                """
-                rec_soup = BeautifulSoup(rec_html, 'html.parser')
-                article.append(rec_soup)
+                <div class="absolute top-3 left-3">
+                 <span class="px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/10 text-blue-300 text-[10px] font-mono">
+                  {tag}
+                 </span>
+                </div>
+               </div>
+               <div class="p-4 flex flex-col flex-grow">
+                <h4 class="text-base font-bold text-white mb-2 group-hover:text-blue-400 transition line-clamp-2">
+                 {title}
+                </h4>
+                <div class="flex items-center justify-between text-[10px] text-slate-500 mt-auto pt-3 border-t border-white/5">
+                 <div class="flex items-center gap-1.5">
+                  <i class="fa-regular fa-calendar"></i>
+                  <span>{date}</span>
+                 </div>
+                 <i class="fa-solid fa-arrow-right group-hover:translate-x-1 transition"></i>
+                </div>
+               </div>
+              </article>
+             </a>
+             """
+             card_soup = BeautifulSoup(card_html, 'html.parser')
+             grid_container.append(card_soup)
+
+        article.append(rec_soup)
+
+    def inject_blog_index(self, posts):
+        container = self.soup.find(id="blog-posts-container")
+        if not container: return
+        
+        container.clear()
+        
+        for post in posts:
+             # Skip the index page itself
+             if post['url'].endswith('/index') or 'index.html' in post['url']: continue
+             
+             # Default values
+             title = post.get('title', 'Untitled')
+             # Clean title (remove suffix)
+             if " - " in title:
+                 title = title.split(" - ")[0]
+             
+             desc = post.get('description', '')
+             url = post.get('url', '#')
+             
+             # Convert to root-relative path if internal
+             if url.startswith("https://cursor-vip.pro"):
+                 url = url.replace("https://cursor-vip.pro", "")
+                 if not url: url = "/"
+             
+             date = post.get('date', '')
+             tag = post.get('tag', 'Tech')
+             
+             # Icon mapping
+             icon = "fa-code"
+             if "额度" in title: icon = "fa-chart-pie"
+             elif "无限" in title: icon = "fa-infinity" # or fa-unlock-keyhole
+             
+             # Simple truncate description
+             if len(desc) > 60: desc = desc[:60] + '...'
+             
+             html = f"""
+             <a href="{url}" class="block group">
+              <article class="glass-card h-full rounded-2xl overflow-hidden flex flex-col">
+               <div class="h-48 bg-slate-900/50 relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-br from-blue-900/40 to-slate-900">
+                </div>
+                <div class="absolute inset-0 flex items-center justify-center">
+                 <i class="fa-solid {icon} text-6xl text-blue-500/20 group-hover:text-blue-500/40 transition duration-500">
+                 </i>
+                </div>
+                <div class="absolute top-4 left-4">
+                 <span class="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/20 text-blue-300 text-xs font-mono">
+                  {tag}
+                 </span>
+                </div>
+               </div>
+               <div class="p-6 flex flex-col flex-grow">
+                <h2 class="text-xl font-bold text-white mb-3 group-hover:text-blue-400 transition">
+                 {title}
+                </h2>
+                <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow">
+                 {desc}
+                </p>
+                <div class="flex items-center justify-between text-xs text-slate-500 border-t border-white/5 pt-4">
+                 <div class="flex items-center gap-2">
+                  <i class="fa-regular fa-calendar">
+                  </i>
+                  <span>
+                   {date}
+                  </span>
+                 </div>
+                 <div class="flex items-center gap-1 group-hover:translate-x-1 transition">
+                  <span>
+                   阅读全文
+                  </span>
+                  <i class="fa-solid fa-arrow-right">
+                  </i>
+                 </div>
+                </div>
+               </div>
+              </article>
+             </a>
+             """
+             card_soup = BeautifulSoup(html, 'html.parser')
+             container.append(card_soup)
+
+    def inject_latest_posts(self, posts):
+        container = self.soup.find(id="latest-posts-container")
+        if not container: return
+
+        # Clear existing content
+        container.clear()
+
+        # Generate HTML for posts
+        for post in posts[:6]: # Limit to 6
+            # Default values
+            title = post.get('title', 'Untitled')
+            desc = post.get('description', '')
+            url = post.get('url', '#')
+            
+            # Convert to root-relative path if internal
+            if url.startswith("https://cursor-vip.pro"):
+                url = url.replace("https://cursor-vip.pro", "")
+                if not url: url = "/"
+            
+            date = post.get('date', '')
+            tag = post.get('tag', 'Tech')
+            
+            # Simple truncate description
+            if len(desc) > 60: desc = desc[:60] + '...'
+
+            html = f"""
+            <a href="{url}" class="block group">
+             <article class="glass-card h-full rounded-2xl overflow-hidden flex flex-col bg-[#0B0F19] border border-white/10 hover:border-blue-500/30 transition duration-300">
+              <div class="p-6 flex flex-col flex-grow">
+               <div class="flex items-center justify-between mb-4">
+                <span class="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono">
+                 {tag}
+                </span>
+                <span class="text-xs text-slate-500 font-mono">
+                 {date}
+                </span>
+               </div>
+               <h3 class="text-lg font-bold text-white mb-3 group-hover:text-blue-400 transition line-clamp-2">
+                {title}
+               </h3>
+               <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow line-clamp-3">
+                {desc}
+               </p>
+               <div class="flex items-center gap-2 text-xs text-slate-500 group-hover:text-blue-400 transition mt-auto">
+                <span>Read Article</span>
+                <i class="fa-solid fa-arrow-right group-hover:translate-x-1 transition-transform"></i>
+               </div>
+              </div>
+             </article>
+            </a>
+            """
+            card_soup = BeautifulSoup(html, 'html.parser')
+            container.append(card_soup)
 
 class SitemapGenerator:
     def __init__(self, base_url="https://cursor-vip.pro"):
         self.base_url = base_url
         self.urls = []
 
-    def add_url(self, url, priority=0.8):
+    def add_url(self, url, priority=0.8, lastmod=None):
+        if not lastmod:
+            lastmod = datetime.date.today().isoformat()
+            
         self.urls.append({
             "loc": url,
-            "lastmod": datetime.date.today().isoformat(),
+            "lastmod": lastmod,
             "priority": priority
         })
 
@@ -505,21 +779,28 @@ def main():
     print(f"📂 Found {len(all_files)} files to process ({len(blog_files)} blog posts, {len(root_files)} static pages).")
 
     latest_posts = []
+    processed_files = []
 
+    # Phase 1: Extraction & Metadata Collection
     for post_path in all_files:
         is_index = os.path.basename(post_path) == 'index.html'
-        print(f"🔨 Processing {os.path.basename(post_path)}...")
+        print(f"🔨 Extracting metadata from {os.path.basename(post_path)}...")
         
         with open(post_path, 'r', encoding='utf-8') as f:
             soup = BeautifulSoup(f, 'html.parser')
 
         # CLEAN UP LINKS IN CONTENT (Not just Nav/Footer)
-        # This fixes the Audit warnings about .html extensions in the body content
         extractor._standardize_links(soup)
 
         # Metadata extraction (simple version)
         title_tag_find = soup.find('title')
         title = title_tag_find.get_text().strip() if title_tag_find else "Untitled"
+        
+        # Clean Title Globally (Remove Suffix if user doesn't want it)
+        # User requested to remove "- Cursor-VIP.pro"
+        if " - Cursor-VIP.pro" in title:
+            title = title.replace(" - Cursor-VIP.pro", "")
+            
         # Try to find description meta, or use first p tag
         desc_tag = soup.find('meta', attrs={"name": "description"})
         description = desc_tag['content'] if desc_tag else "Cursor VIP Service."
@@ -544,49 +825,134 @@ def main():
             "type": page_type
         }
 
-        # Phase 2: Head Reconstruction
-        # Note: We might want to be careful with index.html to not lose custom scripts not in preserved list
-        # But HeadReconstructor preserves scripts/styles, so it should be fine.
-        reconstructor = HeadReconstructor(soup, metadata, favicons)
+        # Date extraction
+        date_published = datetime.date.today().isoformat()
+        json_ld_scripts = soup.find_all('script', type='application/ld+json')
+        for script in json_ld_scripts:
+            try:
+                data = json.loads(script.string)
+                if isinstance(data, list):
+                    for item in data:
+                         if item.get('datePublished'):
+                             date_published = item.get('datePublished')
+                             break
+                elif data.get('datePublished'):
+                    date_published = data.get('datePublished')
+            except:
+                pass
+        
+        # Tag extraction
+        tag = "技术干货"
+        tag_span = soup.find('span', class_=lambda x: x and 'font-mono' in x and 'rounded-full' in x)
+        if tag_span:
+            tag = tag_span.get_text().strip()
+
+        # Update Metadata with Date and Author
+        metadata["date"] = date_published
+        metadata["author"] = "Cursor-VIP Team"
+
+        # Save to list (all pages for sitemap)
+        post_data = {
+            "title": title,
+            "description": description,
+            "url": url,
+            "date": date_published,
+            "tag": tag,
+            "type": page_type
+        }
+        latest_posts.append(post_data)
+        
+        # Store for Phase 2
+        processed_files.append({
+            "path": post_path,
+            "soup": soup,
+            "metadata": metadata,
+            "is_index": is_index,
+            "page_type": page_type,
+            "date_published": date_published,
+            "title": title
+        })
+
+    # Phase 2: Processing & Injection
+    for item in processed_files:
+        post_path = item['path']
+        soup = item['soup']
+        metadata = item['metadata']
+        is_index = item['is_index']
+        page_type = item['page_type']
+        date_published = item['date_published']
+        title = item['title']
+        
+        print(f"⚙️ Processing {os.path.basename(post_path)}...")
+
+        # Head Reconstruction
+        reconstructor = HeadReconstructor(soup, metadata, favicons, latest_posts)
         reconstructor.reconstruct()
 
-        # Phase 3: Injection
+        # Injection
         injector = ContentInjector(soup)
-        
-        # Don't inject Nav/Footer into index.html if it IS the source (avoid self-injection loop artifacts)
-        # But actually, since we extracted clean versions, injecting them back ensures index.html is also standardized!
-        # So we KEEP injection for all files.
         injector.inject_nav(nav)
         injector.inject_footer(footer)
         
-        if not is_index:
+        if is_index and page_type == 'home':
+             # Filter only blogs for homepage injection
+             blog_posts = [p for p in latest_posts if p['type'] == 'blog' and not p['url'].endswith('/index') and 'index.html' not in p['url']]
+             blog_posts.sort(key=lambda x: x['date'], reverse=True)
+             injector.inject_latest_posts(blog_posts)
+        elif is_index and page_type == 'blog':
+             # Inject blog index
+             blog_posts = [p for p in latest_posts if p['type'] == 'blog' and not p['url'].endswith('/index') and 'index.html' not in p['url']]
+             blog_posts.sort(key=lambda x: x['date'], reverse=True)
+             injector.inject_blog_index(blog_posts)
+             # Inject breadcrumbs for index
+             injector.inject_breadcrumbs("博客", is_blog_index=True)
+        elif not is_index:
              if page_type == 'blog':
                  injector.inject_breadcrumbs(title)
-             injector.inject_recommended()
+                 injector.inject_article_meta(date_published)
+                 # Inject recommended reading (pass all posts and current url)
+                 injector.inject_recommended(latest_posts, metadata['url'])
+             else:
+                 injector.inject_recommended(latest_posts, metadata['url'])
 
         # Save
         with open(post_path, 'w', encoding='utf-8') as f:
             f.write(str(soup.prettify()))
-            
-        latest_posts.append({"title": title, "url": url})
 
     # 4. Global Update (Homepage Latest Articles)
     # This part assumes there's a place to put them. For now, we'll just log it.
     print("📋 Latest Articles updated (in memory).")
     
+    # Sort latest_posts to ensure homepage is first, then blog index, then others
+    def sort_key(post):
+        url = post['url']
+        if url == "https://cursor-vip.pro/": return 0
+        if url == "https://cursor-vip.pro/blog/" or url.endswith("/blog/index"): return 1
+        if "/blog/" in url: return 2 # Articles
+        return 3 # Static pages
+
+    latest_posts.sort(key=sort_key)
+
     sitemap_gen = SitemapGenerator()
 
     for post in latest_posts:
         print(f"   - {post['title']} ({post['url']})")
         # Determine priority
-        priority = 1.0 if post['url'] == "https://cursor-vip.pro/" or post['url'].endswith("/index") else 0.8
+        if post['url'] == "https://cursor-vip.pro/" or post['url'].endswith("/index") or post['url'] == "https://cursor-vip.pro/blog/":
+            priority = 1.0 
+        elif "/blog/" in post['url']:
+            priority = 0.8
+        else:
+            priority = 0.8
+            
         # Clean url for sitemap (ensure no index suffix for root)
         sitemap_url = post['url']
         if sitemap_url.endswith("/index"):
             sitemap_url = sitemap_url[:-6] # remove /index
             if not sitemap_url.endswith("/"): sitemap_url += "/" # ensure root has slash or not? usually https://domain.com
         
-        sitemap_gen.add_url(sitemap_url, priority)
+        # Use article date if available
+        sitemap_gen.add_url(sitemap_url, priority, post.get('date'))
 
     print("🗺️ Generating sitemap.xml...")
     sitemap_gen.generate(os.path.join(ROOT_DIR, 'sitemap.xml'))
