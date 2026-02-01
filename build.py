@@ -957,10 +957,31 @@ def main():
     # Sort latest_posts to ensure homepage is first, then blog index, then others
     def sort_key(post):
         url = post['url']
-        if url == "https://cursor-vip.pro/": return 0
-        if url == "https://cursor-vip.pro/blog/" or url.endswith("/blog/index"): return 1
-        if "/blog/" in url: return 2 # Articles
-        return 3 # Static pages
+        
+        # Primary Sort: Page Type
+        if url == "https://cursor-vip.pro/": 
+            type_order = 0
+        elif url == "https://cursor-vip.pro/blog/" or url.endswith("/blog/index"): 
+            type_order = 1
+        elif "/blog/" in url: 
+            type_order = 2 # Articles
+        else: 
+            type_order = 3 # Static pages
+            
+        # Secondary Sort: Date (Newest First)
+        # We use negative timestamp to sort descending within the same type_order
+        try:
+            date_str = post.get('date', '1970-01-01')
+            # Simple check for date format
+            if 'T' in date_str:
+                dt = datetime.datetime.fromisoformat(date_str)
+            else:
+                dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+            timestamp = dt.timestamp()
+        except:
+            timestamp = 0
+            
+        return (type_order, -timestamp)
 
     latest_posts.sort(key=sort_key)
 
