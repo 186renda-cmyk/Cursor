@@ -603,6 +603,18 @@ class ContentInjector:
         container = self.soup.find(id="blog-posts-container")
         if not container: return
         
+        # 0. Clean up existing scripts (Crucial to prevent duplication/conflicts)
+        # We look for scripts containing our specific variables
+        existing_scripts = self.soup.find_all('script')
+        cleaned_count = 0
+        for script in existing_scripts:
+            if script.string and ('const BLOG_DATA' in script.string or 'const BLOG_TAGS' in script.string):
+                script.decompose()
+                cleaned_count += 1
+        
+        if cleaned_count > 0:
+            print(f"   🧹 Cleaned up {cleaned_count} existing blog scripts.")
+
         # 1. Clear Container (We will let JS render it, or render initial state)
         # To be "clean", let's render the initial state (Page 1, All) statically for SEO,
         # but also include the JS to take over.
