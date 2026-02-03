@@ -6,6 +6,9 @@ import datetime
 import json
 import re
 import hashlib
+import copy
+import math
+import shutil
 
 # Configuration
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -595,8 +598,352 @@ class ContentInjector:
 
         article.append(rec_soup)
 
-    def inject_blog_index(self, posts):
+    def inject_blog_app(self, posts):
+        """Injects the Single Page Application logic for the blog."""
         container = self.soup.find(id="blog-posts-container")
+        if not container: return
+        
+        # 1. Clear Container (We will let JS render it, or render initial state)
+        # To be "clean", let's render the initial state (Page 1, All) statically for SEO,
+        # but also include the JS to take over.
+        container.clear()
+        
+        # 2. Prepare Data for JSON
+        # We need a serialized version of posts for the JS to use
+        posts_data = []
+        tags = set()
+        
+        for p in posts:
+            if p['url'].endswith('/index') or 'index.html' in p['url']: continue
+            
+            # Extract data needed for card rendering
+            # We need to replicate the card HTML structure in JS
+            
+            title = p.get('title', 'Untitled').split(" - ")[0]
+            desc = p.get('description', '')
+            if len(desc) > 60: desc = desc[:60] + '...'
+            
+            url = p.get('url', '#')
+            if url.startswith("https://cursor-vip.pro"):
+                url = url.replace("https://cursor-vip.pro", "")
+                if not url: url = "/"
+            
+            date = p.get('date', '')
+            tag = p.get('tag', 'Tech')
+            if tag: tags.add(tag)
+            
+            icon = self._get_icon(title)
+            
+            posts_data.append({
+                "title": title,
+                "desc": desc,
+                "url": url,
+                "date": date,
+                "tag": tag,
+                "icon": icon
+            })
+            
+        # Sort tags
+        sorted_tags = sorted(list(tags))
+
+        # 3. Inject Structure (Container for React-like behavior)
+        # We need:
+        # - Category Nav Container
+        # - Posts Grid Container (already 'container')
+        # - Pagination Container
+        
+        # 3. Inject Structure with Pre-rendered Content (SSR for SEO/Preview)
+        
+        # --- Pre-render Category Nav ---
+        cat_buttons = []
+        # 'All' button (Active)
+        cat_buttons.append(f'<button onclick="window.setCategory(\'全部\')" class="px-4 py-2 rounded-full text-sm font-medium transition bg-blue-600 text-white shadow-lg shadow-blue-500/25">全部</button>')
+        # Other buttons (Inactive)
+        for tag in sorted_tags:
+             cat_buttons.append(f'<button onclick="window.setCategory(\'{tag}\')" class="px-4 py-2 rounded-full text-sm font-medium transition bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5">{tag}</button>')
+        
+        cat_inner_html = "\n".join(cat_buttons)
+        
+        # Create Category Nav placeholder
+        cat_nav = self.soup.find(id="category-nav")
+        if cat_nav:
+            cat_nav.decompose()
+            
+        cat_html = f'<div id="category-nav" class="flex flex-wrap gap-2 mb-12 justify-center">{cat_inner_html}</div>'
+        cat_soup = BeautifulSoup(cat_html, 'html.parser')
+        container.insert_before(cat_soup)
+        
+        # --- Pre-render Posts (Page 1) ---
+        container.clear()
+        posts_per_page = 6
+        page_1_posts = posts_data[:posts_per_page]
+        
+        if not page_1_posts:
+             container.append(BeautifulSoup('<div class="col-span-full text-center text-slate-500 py-20">暂无文章</div>', 'html.parser'))
+        else:
+             for post in page_1_posts:
+                 # Re-construct card HTML (must match JS template)
+                 card_html = f"""
+                 <a href="{post['url']}" class="block group">
+                  <article class="glass-card h-full rounded-2xl overflow-hidden flex flex-col">
+                   <div class="h-48 bg-slate-900/50 relative overflow-hidden">
+                    <div class="absolute inset-0 bg-gradient-to-br from-blue-900/40 to-slate-900"></div>
+                    <div class="absolute inset-0 flex items-center justify-center">
+                     <i class="fa-solid {post['icon']} text-6xl text-blue-500/20 group-hover:text-blue-500/40 transition duration-500"></i>
+                    </div>
+                    <div class="absolute top-4 left-4">
+                     <span class="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/20 text-blue-300 text-xs font-mono">
+                      {post['tag']}
+                     </span>
+                    </div>
+                   </div>
+                   <div class="p-6 flex flex-col flex-grow">
+                    <h2 class="text-xl font-bold text-white mb-3 group-hover:text-blue-400 transition">
+                     {post['title']}
+                    </h2>
+                    <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow">
+                     {post['desc']}
+                    </p>
+                    <div class="flex items-center justify-between text-xs text-slate-500 border-t border-white/5 pt-4">
+                     <div class="flex items-center gap-2">
+                      <i class="fa-regular fa-calendar"></i>
+                      <span>{post['date']}</span>
+                     </div>
+                     <div class="flex items-center gap-1 group-hover:translate-x-1 transition">
+                      <span>阅读全文</span>
+                      <i class="fa-solid fa-arrow-right"></i>
+                     </div>
+                    </div>
+                   </div>
+                  </article>
+                 </a>
+                 """
+                 container.append(BeautifulSoup(card_html, 'html.parser'))
+
+        # --- Pre-render Pagination ---
+        pag_nav = self.soup.find(id="pagination")
+        if pag_nav:
+            pag_nav.decompose()
+            
+        total_pages = math.ceil(len(posts_data) / posts_per_page)
+        pag_inner_html = ""
+        
+        if total_pages > 1:
+            # Page 1 is active
+            pag_inner_html += f'<button onclick="window.setPage(1)" class="w-10 h-10 flex items-center justify-center rounded-full text-sm font-medium transition bg-blue-600 text-white shadow-lg shadow-blue-500/25">1</button>'
+            
+            for i in range(2, total_pages + 1):
+                if i <= 3: # Show first few
+                     pag_inner_html += f'<button onclick="window.setPage({i})" class="w-10 h-10 flex items-center justify-center rounded-full text-sm font-medium transition bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5">{i}</button>'
+                elif i == 4 and total_pages > 4:
+                     pag_inner_html += '<span class="w-10 h-10 flex items-center justify-center text-slate-600">...</span>'
+            
+            # Next button
+            pag_inner_html += f'<button onclick="window.setPage(2)" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5 transition"><i class="fa-solid fa-chevron-right text-xs"></i></button>'
+
+        pag_html = f'<div id="pagination" class="flex justify-center items-center gap-2 mt-16">{pag_inner_html}</div>'
+        pag_soup = BeautifulSoup(pag_html, 'html.parser')
+        container.insert_after(pag_soup)
+            
+        # 4. Inject Data & Script
+        script_content = f"""
+        const BLOG_DATA = {json.dumps(posts_data, ensure_ascii=False)};
+        const BLOG_TAGS = {json.dumps(sorted_tags, ensure_ascii=False)};
+        
+        (function() {{
+            const postsPerPage = 6;
+            let currentPage = 1;
+            let currentCategory = '全部';
+            
+            // DOM Elements
+            const container = document.getElementById('blog-posts-container');
+            const catNav = document.getElementById('category-nav');
+            const pagNav = document.getElementById('pagination');
+            
+            // Initialize from URL params
+            function initState() {{
+                const params = new URLSearchParams(window.location.search);
+                currentCategory = params.get('category') || '全部';
+                currentPage = parseInt(params.get('page')) || 1;
+                render();
+            }}
+            
+            // Render Functions
+            function render() {{
+                // 1. Filter
+                const filtered = currentCategory === '全部' 
+                    ? BLOG_DATA 
+                    : BLOG_DATA.filter(p => p.tag === currentCategory);
+                    
+                // 2. Pagination Logic
+                const totalPages = Math.ceil(filtered.length / postsPerPage);
+                if (currentPage > totalPages) currentPage = 1;
+                if (currentPage < 1) currentPage = 1;
+                
+                const start = (currentPage - 1) * postsPerPage;
+                const pagePosts = filtered.slice(start, start + postsPerPage);
+                
+                // 3. Render Posts
+                renderPosts(pagePosts);
+                
+                // 4. Render Categories
+                renderCategories();
+                
+                // 5. Render Pagination
+                renderPagination(totalPages);
+                
+                // 6. Update URL (without reload)
+                const newUrl = new URL(window.location);
+                if (currentCategory !== '全部') newUrl.searchParams.set('category', currentCategory);
+                else newUrl.searchParams.delete('category');
+                
+                if (currentPage > 1) newUrl.searchParams.set('page', currentPage);
+                else newUrl.searchParams.delete('page');
+                
+                window.history.replaceState({{}}, '', newUrl);
+            }}
+            
+            function renderPosts(posts) {{
+                if (posts.length === 0) {{
+                    container.innerHTML = '<div class="col-span-full text-center text-slate-500 py-20">暂无文章</div>';
+                    return;
+                }}
+                
+                container.innerHTML = posts.map(post => `
+                    <a href="${{post.url}}" class="block group">
+                      <article class="glass-card h-full rounded-2xl overflow-hidden flex flex-col">
+                       <div class="h-48 bg-slate-900/50 relative overflow-hidden">
+                        <div class="absolute inset-0 bg-gradient-to-br from-blue-900/40 to-slate-900"></div>
+                        <div class="absolute inset-0 flex items-center justify-center">
+                         <i class="fa-solid ${{post.icon}} text-6xl text-blue-500/20 group-hover:text-blue-500/40 transition duration-500"></i>
+                        </div>
+                        <div class="absolute top-4 left-4">
+                         <span class="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/20 text-blue-300 text-xs font-mono">
+                          ${{post.tag}}
+                         </span>
+                        </div>
+                       </div>
+                       <div class="p-6 flex flex-col flex-grow">
+                        <h2 class="text-xl font-bold text-white mb-3 group-hover:text-blue-400 transition">
+                         ${{post.title}}
+                        </h2>
+                        <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow">
+                         ${{post.desc}}
+                        </p>
+                        <div class="flex items-center justify-between text-xs text-slate-500 border-t border-white/5 pt-4">
+                         <div class="flex items-center gap-2">
+                          <i class="fa-regular fa-calendar"></i>
+                          <span>${{post.date}}</span>
+                         </div>
+                         <div class="flex items-center gap-1 group-hover:translate-x-1 transition">
+                          <span>阅读全文</span>
+                          <i class="fa-solid fa-arrow-right"></i>
+                         </div>
+                        </div>
+                       </div>
+                      </article>
+                    </a>
+                `).join('');
+            }}
+            
+            function renderCategories() {{
+                const allActive = currentCategory === '全部' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5';
+                
+                let html = `
+                    <button onclick="window.setCategory('全部')" class="px-4 py-2 rounded-full text-sm font-medium transition ${{allActive}}">
+                        全部
+                    </button>
+                `;
+                
+                BLOG_TAGS.forEach(tag => {{
+                    const isActive = currentCategory === tag;
+                    const cls = isActive ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5';
+                    html += `
+                        <button onclick="window.setCategory('${{tag}}')" class="px-4 py-2 rounded-full text-sm font-medium transition ${{cls}}">
+                            ${{tag}}
+                        </button>
+                    `;
+                }});
+                
+                catNav.innerHTML = html;
+            }}
+            
+            function renderPagination(totalPages) {{
+                if (totalPages <= 1) {{
+                    pagNav.innerHTML = '';
+                    return;
+                }}
+                
+                let html = '';
+                
+                // Prev
+                if (currentPage > 1) {{
+                    html += `
+                    <button onclick="window.setPage(${{currentPage - 1}})" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5 transition">
+                        <i class="fa-solid fa-chevron-left text-xs"></i>
+                    </button>
+                    `;
+                }}
+                
+                // Pages
+                for (let i = 1; i <= totalPages; i++) {{
+                    if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {{
+                        const isActive = i === currentPage;
+                        const cls = isActive ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5';
+                        html += `
+                        <button onclick="window.setPage(${{i}})" class="w-10 h-10 flex items-center justify-center rounded-full text-sm font-medium transition ${{cls}}">
+                            ${{i}}
+                        </button>
+                        `;
+                    }} else if (i === 2 && currentPage > 3) {{
+                         html += '<span class="w-10 h-10 flex items-center justify-center text-slate-600">...</span>';
+                    }} else if (i === totalPages - 1 && currentPage < totalPages - 2) {{
+                         html += '<span class="w-10 h-10 flex items-center justify-center text-slate-600">...</span>';
+                    }}
+                }}
+                
+                // Next
+                if (currentPage < totalPages) {{
+                    html += `
+                    <button onclick="window.setPage(${{currentPage + 1}})" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5 transition">
+                        <i class="fa-solid fa-chevron-right text-xs"></i>
+                    </button>
+                    `;
+                }}
+                
+                pagNav.innerHTML = html;
+            }}
+            
+            // Expose Global Actions
+            window.setCategory = (cat) => {{
+                currentCategory = cat;
+                currentPage = 1;
+                render();
+            }};
+            
+            window.setPage = (p) => {{
+                currentPage = p;
+                render();
+                // Scroll to top of list
+                document.getElementById('category-nav').scrollIntoView({{ behavior: 'smooth' }});
+            }};
+            
+            // Start
+            initState();
+            
+            // Handle browser back/forward
+            window.addEventListener('popstate', initState);
+            
+        }})();
+        """
+        
+        # Inject Script
+        script_tag = self.soup.new_tag('script')
+        script_tag.string = script_content
+        
+        # Append to body
+        self.soup.body.append(script_tag)
+
         if not container: return
         
         container.clear()
@@ -874,9 +1221,12 @@ def main():
         
         # Tag extraction
         tag = "技术干货"
-        tag_span = soup.find('span', class_=lambda x: x and 'font-mono' in x and 'rounded-full' in x)
-        if tag_span:
-            tag = tag_span.get_text().strip()
+        # Search for tag using reliable structural classes (font-mono + rounded-full)
+        # We search in both div and span
+        tag_elem = soup.find(['span', 'div'], class_=lambda x: x and 'font-mono' in x and 'rounded-full' in x)
+        
+        if tag_elem:
+            tag = tag_elem.get_text().strip()
 
         # Update Metadata with Date and Author
         metadata["date"] = date_published
@@ -931,12 +1281,14 @@ def main():
              blog_posts.sort(key=lambda x: x['date'], reverse=True)
              injector.inject_latest_posts(blog_posts)
         elif is_index and page_type == 'blog':
-             # Inject blog index
-             blog_posts = [p for p in latest_posts if p['type'] == 'blog' and not p['url'].endswith('/index') and 'index.html' not in p['url']]
-             blog_posts.sort(key=lambda x: x['date'], reverse=True)
-             injector.inject_blog_index(blog_posts)
-             # Inject breadcrumbs for index
+             # 1. Prepare Data
+             all_blog_posts = [p for p in latest_posts if p['type'] == 'blog' and not p['url'].endswith('/index') and 'index.html' not in p['url']]
+             all_blog_posts.sort(key=lambda x: x['date'], reverse=True)
+             
+             # Inject SPA logic
              injector.inject_breadcrumbs("博客", is_blog_index=True)
+             injector.inject_blog_app(all_blog_posts)
+             
         elif not is_index:
              if page_type == 'blog':
                  injector.inject_breadcrumbs(title)
