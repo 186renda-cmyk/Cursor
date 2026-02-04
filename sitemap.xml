@@ -2,79 +2,91 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://cursor-vip.pro/</loc>
-    <lastmod>2026-02-03</lastmod>
+    <lastmod>2026-01-25</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>https://cursor-vip.pro/blog/</loc>
-    <lastmod>2026-01-30</lastmod>
+    <lastmod>2026-02-03</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://cursor-vip.pro/blog/cursor-bugbot</loc>
+    <loc>https://cursor-vip.pro/blog/cursor-pricing-guide/</loc>
+    <lastmod>2026-02-04</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://cursor-vip.pro/blog/cursor-editor-review/</loc>
+    <lastmod>2026-02-04</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://cursor-vip.pro/blog/cursor-plan-mode/</loc>
     <lastmod>2026-02-03</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://cursor-vip.pro/blog/cursor-recharge-guide</loc>
-    <lastmod>2026-02-03</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://cursor-vip.pro/blog/cursor-how-to-use</loc>
-    <lastmod>2026-02-01</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://cursor-vip.pro/blog/cursor-plan-mode</loc>
-    <lastmod>2026-02-01</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://cursor-vip.pro/blog/cursor-usage-check</loc>
+    <loc>https://cursor-vip.pro/blog/cursor-recharge-guide/</loc>
     <lastmod>2026-01-30</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://cursor-vip.pro/blog/cursor-chinese-settings</loc>
+    <loc>https://cursor-vip.pro/blog/cursor-chinese-settings/</loc>
+    <lastmod>2026-01-28</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://cursor-vip.pro/blog/cursor-unlimited/</loc>
+    <lastmod>2026-01-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://cursor-vip.pro/blog/cursor-bugbot/</loc>
+    <lastmod>2026-01-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://cursor-vip.pro/blog/cursor-usage-check/</loc>
+    <lastmod>2026-01-22</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://cursor-vip.pro/blog/cursor-how-to-use/</loc>
+    <lastmod>2026-01-20</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://cursor-vip.pro/about/</loc>
     <lastmod>2026-01-30</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://cursor-vip.pro/blog/cursor-unlimited</loc>
-    <lastmod>2025-12-12</lastmod>
+    <loc>https://cursor-vip.pro/privacy/</loc>
+    <lastmod>2026-01-30</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://cursor-vip.pro/about</loc>
-    <lastmod>2026-02-03</lastmod>
+    <loc>https://cursor-vip.pro/terms/</loc>
+    <lastmod>2026-01-30</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://cursor-vip.pro/privacy</loc>
-    <lastmod>2026-02-03</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://cursor-vip.pro/terms</loc>
-    <lastmod>2026-02-03</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://cursor-vip.pro/refund</loc>
-    <lastmod>2026-02-03</lastmod>
+    <loc>https://cursor-vip.pro/refund/</loc>
+    <lastmod>2026-01-30</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>

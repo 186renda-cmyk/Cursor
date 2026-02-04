@@ -1,5 +1,6 @@
 import os
 import glob
+import subprocess
 from bs4 import BeautifulSoup
 import sys
 import datetime
@@ -10,10 +11,84 @@ import copy
 import math
 import shutil
 
-# Configuration
+# ==========================================
+# Configuration & Constants
+# ==========================================
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 INDEX_FILE = os.path.join(ROOT_DIR, 'index.html')
 BLOG_DIR = os.path.join(ROOT_DIR, 'blog')
+
+# Tag Mappings: Map granular tags to broader categories
+TAG_MAPPING = {
+    "新手教程": "使用教程",
+    "使用指南": "使用教程",
+    "汉化教程": "使用教程",
+    "功能解析": "使用教程",
+    "技术干货": "技术深度",
+    "技术揭秘": "技术深度",
+    "深度评测": "技术深度",
+    "价格解析": "订阅指南",
+    "充值指南": "订阅指南"
+}
+
+# Icons for auto-generation based on title hash
+ICONS = [
+    "fa-code", "fa-terminal", "fa-laptop-code", "fa-microchip", 
+    "fa-network-wired", "fa-database", "fa-server", "fa-cloud",
+    "fa-layer-group", "fa-cubes", "fa-robot", "fa-brain",
+    "fa-keyboard", "fa-sitemap", "fa-bug", "fa-file-code"
+]
+
+# ==========================================
+# Helper Functions
+# ==========================================
+
+def get_post_date(filepath):
+    """
+    Get the original creation date from Git history.
+    Fallback to today if not found.
+    """
+    try:
+        # Get all commit dates for the file (newest first)
+        # --follow handles renames
+        result = subprocess.run(
+            ['git', 'log', '--follow', '--format=%ad', '--date=short', filepath],
+            capture_output=True, text=True
+        )
+        lines = result.stdout.strip().split('\n')
+        
+        # The last line is the oldest commit (creation date)
+        if lines and lines[-1]:
+            return lines[-1].strip()
+            
+    except Exception as e:
+        print(f"⚠️ Git date extraction failed for {os.path.basename(filepath)}: {e}")
+    
+    return datetime.date.today().isoformat()
+
+def get_last_modified_date(filepath):
+    """
+    Get the last modification date from Git history.
+    Fallback to today if not found.
+    """
+    try:
+        # Get latest commit date for the file
+        result = subprocess.run(
+            ['git', 'log', '-n', '1', '--format=%ad', '--date=short', filepath],
+            capture_output=True, text=True
+        )
+        line = result.stdout.strip()
+        if line:
+            return line
+            
+    except Exception as e:
+        print(f"⚠️ Git lastmod extraction failed for {os.path.basename(filepath)}: {e}")
+    
+    return datetime.date.today().isoformat()
+
+# ==========================================
+# Classes
+# ==========================================
 
 class SmartExtractor:
     def __init__(self, index_path):
@@ -24,9 +99,7 @@ class SmartExtractor:
     def get_nav(self):
         nav = self.soup.find('nav')
         if nav:
-            # Clean up active states if necessary, or ensure links are root relative
             self._standardize_links(nav, convert_anchors=True)
-
             # Ensure logo points to SVG if referenced
             logo_img = nav.find('img', alt=lambda x: x and 'logo' in x.lower())
             if logo_img:
@@ -42,17 +115,14 @@ class SmartExtractor:
     def get_favicons(self):
         """Extracts and standardizes favicon links."""
         favicons = []
-        # Select all icon-related link tags
         icon_tags = self.soup.find_all('link', rel=lambda x: x and ('icon' in x.lower() or 'apple-touch-icon' in x.lower()))
         
         for tag in icon_tags:
-            # Create a copy to avoid modifying the original soup during extraction (though standardized links are good)
             new_tag = tag.__copy__()
             href = new_tag.get('href')
             if href:
-                # Force root relative path
                 if href.startswith('data:'):
-                    pass # Ignore data URIs
+                    pass
                 elif not href.startswith(('http', '//', '/')):
                     new_tag['href'] = '/' + href
                 elif href.startswith('./'):
@@ -66,16 +136,12 @@ class SmartExtractor:
         for a in element.find_all('a', href=True):
             href = a['href']
             
-            # Skip external/special links (but add protection first)
+            # Skip external/special links
             if href.startswith(('http', '//', 'mailto:', 'tel:', 'javascript:', 'data:')):
                 if href.startswith(('http://', 'https://', '//')):
-                    # Check if it's strictly external (not current domain)
-                    # We treat links not containing 'cursor-vip.pro' as external
                     if 'cursor-vip.pro' not in href:
                         rel = a.get('rel', [])
-                        # bs4 usually returns list for rel, but let's be safe
                         if isinstance(rel, str): rel = [rel]
-                        
                         updates = ['nofollow', 'noopener', 'noreferrer']
                         for u in updates:
                             if u not in rel:
@@ -93,16 +159,13 @@ class SmartExtractor:
             # Clean URL: Remove .html suffix
             if href.endswith('.html'):
                 href = href[:-5]
-                if not href: href = '/' # index.html -> /
-            
+                if not href: href = '/' 
+
             # Clean URL: Remove /index suffix
             if href.endswith('/index'):
-                href = href[:-5] # remove index (leaving trailing slash if exists? wait. /blog/index -> /blog/)
-                # if href was "index", it became "" -> "/"
-                # if href was "blog/index", it becomes "blog/"
-
+                href = href[:-5]
             
-            # Force Root Relative Path (ensure starts with /)
+            # Force Root Relative Path
             if not href.startswith('/'):
                 href = '/' + href
             
@@ -127,21 +190,14 @@ class HeadReconstructor:
             head = self.soup.new_tag('head')
             self.soup.html.insert(0, head)
         
-        # Clear existing head content but keep specific tags if needed? 
-        # Instruction says: "清空并重组" (Clear and Reorganize)
-        # But we need to keep CSS/JS resources as per Group D instructions.
-        
         # Extract existing CSS/JS to preserve
         css_js_tags = head.find_all(['link', 'script', 'style'])
         preserved_resources = []
         for tag in css_js_tags:
-            # Filter out favicons since we re-inject them from index.html
             is_favicon = tag.name == 'link' and tag.get('rel') and ('icon' in tag.get('rel')[0].lower() or 'apple-touch-icon' in tag.get('rel')[0].lower())
             is_canonical = tag.name == 'link' and tag.get('rel') and 'canonical' in tag.get('rel')
             is_json_ld = tag.name == 'script' and tag.get('type') == 'application/ld+json'
             
-            # We want to keep CSS (stylesheet), JS (script), Styles (style)
-            # We exclude canonical (rebuilt in Group B) and favicons (rebuilt in Group D) and existing JSON-LD (rebuilt in Group E)
             if not is_favicon and not is_canonical and not is_json_ld:
                  preserved_resources.append(tag)
 
@@ -176,7 +232,6 @@ class HeadReconstructor:
         head.append(self.soup.new_tag('meta', attrs={"property": "og:image", "content": "https://cursor-vip.pro/assets/og.png"}))
         head.append(self.soup.new_tag('meta', attrs={"property": "og:type", "content": "website"}))
         
-        # SEO: Author and Time
         if self.metadata.get('author'):
             head.append(self.soup.new_tag('meta', attrs={"name": "author", "content": self.metadata.get('author')}))
         if self.metadata.get('date') and self.metadata.get('type') == 'blog':
@@ -188,11 +243,9 @@ class HeadReconstructor:
         head.append(self.soup.new_tag('meta', attrs={"name": "twitter:image", "content": "https://cursor-vip.pro/assets/og.png"}))
         
         # Group D: Branding & Resources
-        # Insert Favicons from Index
         for favicon in self.favicons:
             head.append(favicon)
         
-        # Insert Preserved Resources (CSS/JS)
         for res in preserved_resources:
             head.append(res)
 
@@ -218,7 +271,6 @@ class SchemaGenerator:
         self.base_url = "https://cursor-vip.pro"
 
     def get_home_schema(self):
-        # 1. WebSite
         website = {
             "@context": "https://schema.org",
             "@type": "WebSite",
@@ -230,92 +282,20 @@ class SchemaGenerator:
                 "query-input": "required name=search_term_string"
             }
         }
-
-        # 2. Organization
         org = {
             "@context": "https://schema.org",
             "@type": "Organization",
             "name": "Cursor-VIP",
             "url": self.base_url,
-            "logo": f"{self.base_url}/assets/logo.png", # Assuming logo exists, or use favicon
-            "sameAs": [
-                "https://github.com/cursor-vip",
-                "https://twitter.com/cursor_vip"
-            ],
+            "logo": f"{self.base_url}/assets/logo.png",
+            "sameAs": ["https://github.com/cursor-vip", "https://twitter.com/cursor_vip"],
             "contactPoint": {
                 "@type": "ContactPoint",
                 "email": "support@cursor-vip.pro",
                 "contactType": "customer support"
             }
         }
-
-        # 3. Product (Cursor Pro)
-        product = {
-            "@context": "https://schema.org",
-            "@type": "Product",
-            "name": "Cursor Pro 会员订阅",
-            "image": f"{self.base_url}/assets/og.png",
-            "description": "Cursor Pro 独享账号与代充服务，解锁 Opus 4.5 与 Copilot++。",
-            "brand": {
-                "@type": "Brand",
-                "name": "Cursor"
-            },
-            "offers": {
-                "@type": "AggregateOffer",
-                "priceCurrency": "CNY",
-                "lowPrice": "205",
-                "highPrice": "260",
-                "offerCount": "2",
-                "availability": "https://schema.org/InStock"
-            },
-            "aggregateRating": {
-                "@type": "AggregateRating",
-                "ratingValue": "4.9",
-                "reviewCount": "1280"
-            }
-        }
-
-        # 4. FAQPage
-        faq = {
-            "@context": "https://schema.org",
-            "@type": "FAQPage",
-            "mainEntity": [
-                {
-                    "@type": "Question",
-                    "name": "购买后如何发货？需要多久？",
-                    "acceptedAnswer": {
-                        "@type": "Answer",
-                        "text": "我们采用全自动发货系统。付款成功后，系统会立即将账号密码（或兑换操作指引）发送到您填写的邮箱中。通常在 1-3 分钟内即可收到。"
-                    }
-                },
-                {
-                    "@type": "Question",
-                    "name": "成品号和代充有什么区别？",
-                    "acceptedAnswer": {
-                        "@type": "Answer",
-                        "text": "成品号 (¥205) 是我们提供一个新的、已经开通好 Pro 会员的账号给您，适合新用户。代充 (¥260) 是在您自己的账号上开通会员，可以保留历史数据。"
-                    }
-                },
-                {
-                    "@type": "Question",
-                    "name": "账号稳定吗？会掉线吗？",
-                    "acceptedAnswer": {
-                        "@type": "Answer",
-                        "text": "非常稳定。我们提供的都是正规渠道开通的独享账号（一人一号），绝非低价共享号。只要不进行恶意滥用，账号在有效期内可以一直稳定使用。"
-                    }
-                },
-                {
-                    "@type": "Question",
-                    "name": "我的代码会被上传吗？隐私如何保障？",
-                    "acceptedAnswer": {
-                        "@type": "Answer",
-                        "text": "Cursor 官方非常重视隐私。您可以开启 'Privacy Mode' (隐私模式)，开启后，您的代码仅在本地处理或加密传输用于推理，官方承诺不会将其存储或用于训练模型。"
-                    }
-                }
-            ]
-        }
-
-        return [website, org, product, faq]
+        return [website, org]
 
     def get_blog_schema(self):
         blog_posting = {
@@ -341,7 +321,6 @@ class SchemaGenerator:
             },
             "datePublished": self.metadata.get('date', datetime.date.today().isoformat())
         }
-
         breadcrumb = {
             "@context": "https://schema.org",
             "@type": "BreadcrumbList",
@@ -366,7 +345,6 @@ class SchemaGenerator:
                 }
             ]
         }
-        
         return [blog_posting, breadcrumb]
 
     def get_static_page_schema(self):
@@ -379,70 +357,41 @@ class SchemaGenerator:
         }]
 
 class ContentInjector:
-    ICONS = [
-        "fa-code", "fa-terminal", "fa-laptop-code", "fa-microchip", 
-        "fa-network-wired", "fa-database", "fa-server", "fa-cloud",
-        "fa-layer-group", "fa-cubes", "fa-robot", "fa-brain",
-        "fa-keyboard", "fa-sitemap", "fa-bug", "fa-file-code"
-    ]
-
     def __init__(self, soup):
         self.soup = soup
 
     def _get_icon(self, title):
-        # Generate consistent icon based on title hash
         hash_val = int(hashlib.md5(title.encode('utf-8')).hexdigest(), 16)
-        return self.ICONS[hash_val % len(self.ICONS)]
+        return ICONS[hash_val % len(ICONS)]
 
     def inject_nav(self, nav_html):
         if not nav_html: return
-        
         body = self.soup.find('body')
         if not body: return
-        
-        # Remove existing nav
         existing_nav = body.find('nav')
-        if existing_nav:
-            existing_nav.decompose()
-        
-        # Insert new nav at the beginning of body
+        if existing_nav: existing_nav.decompose()
         body.insert(0, nav_html)
 
     def inject_footer(self, footer_html):
         if not footer_html: return
-        
         body = self.soup.find('body')
         if not body: return
-        
-        # Remove existing footer
         existing_footer = body.find('footer')
-        if existing_footer:
-            existing_footer.decompose()
-            
-        # Insert new footer at the end of body (before scripts if any?)
-        # Just append to body is usually fine for footer
+        if existing_footer: existing_footer.decompose()
         body.append(footer_html)
 
     def inject_breadcrumbs(self, title, is_blog_index=False):
         main = self.soup.find('main')
         if not main: return
         
-        # Adjust main padding to reduce gap between header and breadcrumbs
-        # Default header is fixed h-16 (mobile) / h-20 (desktop)
-        # Previous padding was pt-32 (128px) / lg:pt-48 (192px), which is too large
-        # We change it to pt-24 (96px) / lg:pt-32 (128px)
         if main.has_attr('class'):
             classes = main['class']
-            # Filter out existing large padding
             new_classes = [c for c in classes if not c.startswith('pt-') and not c.startswith('lg:pt-')]
-            # Add new padding
             new_classes.extend(['pt-24', 'lg:pt-32'])
             main['class'] = new_classes
         
-        # Remove existing breadcrumbs if any (to avoid duplicates on rebuild)
         existing_bc = main.find('nav', attrs={"aria-label": "Breadcrumb"})
-        if existing_bc:
-            existing_bc.decompose()
+        if existing_bc: existing_bc.decompose()
             
         if is_blog_index:
              bc_html = f"""
@@ -466,22 +415,13 @@ class ContentInjector:
               </ol>
             </nav>
             """
-
-        bc_soup = BeautifulSoup(bc_html, 'html.parser')
-        
-        # Insert at the beginning of main
-        main.insert(0, bc_soup)
+        main.insert(0, BeautifulSoup(bc_html, 'html.parser'))
 
     def inject_article_meta(self, date, author="Cursor-VIP Team"):
         header = self.soup.find('header')
         if not header: return
-
-        # Check if we already injected it to avoid duplicates
         existing_meta = header.find('div', id="article-meta")
-        if existing_meta:
-            existing_meta.decompose()
-
-        # Create meta HTML
+        if existing_meta: existing_meta.decompose()
         meta_html = f"""
         <div id="article-meta" class="flex items-center justify-center gap-6 text-sm text-slate-400 mt-4 font-mono">
             <div class="flex items-center gap-2">
@@ -494,75 +434,41 @@ class ContentInjector:
             </div>
         </div>
         """
-        meta_soup = BeautifulSoup(meta_html, 'html.parser')
-        
-        # Append to header
-        header.append(meta_soup)
+        header.append(BeautifulSoup(meta_html, 'html.parser'))
 
     def inject_recommended(self, posts, current_url):
         article = self.soup.find('article')
         if not article: return
         
-        # Check if recommended section exists (by id)
         rec = article.find(id="recommended-reading")
-        if rec:
-            rec.decompose() # Clean existing
+        if rec: rec.decompose()
             
-        # Also check for any div that looks like a manual recommended section
         for h3 in article.find_all('h3'):
             if "推荐阅读" in h3.get_text():
                 parent = h3.parent
-                if parent.name == 'div' and ('bg-slate-900/50' in str(parent.get('class', [])) or 'border-t' in str(parent.get('class', []))):
-                     parent.decompose()
-                elif parent.name == 'div':
-                     parent.decompose()
+                if parent.name == 'div': parent.decompose()
 
-        # Filter posts
         recommendations = [p for p in posts if p['type'] == 'blog' and p['url'] != current_url and not p['url'].endswith('/index') and 'index.html' not in p['url']]
-        
-        # Sort by date (newest first)
         recommendations.sort(key=lambda x: x['date'], reverse=True)
-        
-        # Limit to 3
         recommendations = recommendations[:3]
-        
         if not recommendations: return
 
-        # Create Container
         rec_html = """
         <div id="recommended-reading" class="mt-16 pt-10 border-t border-white/10">
             <h3 class="text-2xl font-bold text-white mb-8">推荐阅读</h3>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <!-- Cards injected below -->
-            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
         </div>
         """
         rec_soup = BeautifulSoup(rec_html, 'html.parser')
         grid_container = rec_soup.find('div', class_="grid")
         
         for post in recommendations:
-             # Default values
-             title = post.get('title', 'Untitled')
-             # Clean title
-             if " - " in title:
-                 title = title.split(" - ")[0]
-             
-             desc = post.get('description', '')
-             url = post.get('url', '#')
-             
-             # Convert to root-relative path if internal
-             if url.startswith("https://cursor-vip.pro"):
-                 url = url.replace("https://cursor-vip.pro", "")
-                 if not url: url = "/"
-             
+             title = post.get('title', 'Untitled').split(" - ")[0]
+             desc = post.get('description', '')[:40] + '...' if len(post.get('description', '')) > 40 else post.get('description', '')
+             url = post.get('url', '#').replace("https://cursor-vip.pro", "") or "/"
              date = post.get('date', '')
              tag = post.get('tag', 'Tech')
-             
-             # Icon mapping using hash
              icon = self._get_icon(title)
-             
-             # Truncate description more aggressively for small cards
-             if len(desc) > 40: desc = desc[:40] + '...'
              
              card_html = f"""
              <a href="{url}" class="block group h-full">
@@ -573,120 +479,66 @@ class ContentInjector:
                  <i class="fa-solid {icon} text-4xl text-blue-500/20 group-hover:text-blue-500/40 transition duration-500"></i>
                 </div>
                 <div class="absolute top-3 left-3">
-                 <span class="px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/10 text-blue-300 text-[10px] font-mono">
-                  {tag}
-                 </span>
+                 <span class="px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/10 text-blue-300 text-[10px] font-mono">{tag}</span>
                 </div>
                </div>
                <div class="p-4 flex flex-col flex-grow">
-                <h4 class="text-base font-bold text-white mb-2 group-hover:text-blue-400 transition line-clamp-2">
-                 {title}
-                </h4>
+                <h4 class="text-base font-bold text-white mb-2 group-hover:text-blue-400 transition line-clamp-2">{title}</h4>
                 <div class="flex items-center justify-between text-[10px] text-slate-500 mt-auto pt-3 border-t border-white/5">
-                 <div class="flex items-center gap-1.5">
-                  <i class="fa-regular fa-calendar"></i>
-                  <span>{date}</span>
-                 </div>
+                 <div class="flex items-center gap-1.5"><i class="fa-regular fa-calendar"></i><span>{date}</span></div>
                  <i class="fa-solid fa-arrow-right group-hover:translate-x-1 transition"></i>
                 </div>
                </div>
               </article>
              </a>
              """
-             card_soup = BeautifulSoup(card_html, 'html.parser')
-             grid_container.append(card_soup)
+             grid_container.append(BeautifulSoup(card_html, 'html.parser'))
 
         article.append(rec_soup)
 
     def inject_blog_app(self, posts):
-        """Injects the Single Page Application logic for the blog."""
         container = self.soup.find(id="blog-posts-container")
         if not container: return
         
-        # 0. Clean up existing scripts (Crucial to prevent duplication/conflicts)
-        # We look for scripts containing our specific variables
         existing_scripts = self.soup.find_all('script')
-        cleaned_count = 0
         for script in existing_scripts:
             if script.string and ('const BLOG_DATA' in script.string or 'const BLOG_TAGS' in script.string):
                 script.decompose()
-                cleaned_count += 1
         
-        if cleaned_count > 0:
-            print(f"   🧹 Cleaned up {cleaned_count} existing blog scripts.")
-
-        # 1. Clear Container (We will let JS render it, or render initial state)
-        # To be "clean", let's render the initial state (Page 1, All) statically for SEO,
-        # but also include the JS to take over.
         container.clear()
         
-        # 2. Prepare Data for JSON
-        # We need a serialized version of posts for the JS to use
         posts_data = []
         tags = set()
         
         for p in posts:
             if p['url'].endswith('/index') or 'index.html' in p['url']: continue
             
-            # Extract data needed for card rendering
-            # We need to replicate the card HTML structure in JS
-            
             title = p.get('title', 'Untitled').split(" - ")[0]
-            desc = p.get('description', '')
-            if len(desc) > 60: desc = desc[:60] + '...'
-            
-            url = p.get('url', '#')
-            if url.startswith("https://cursor-vip.pro"):
-                url = url.replace("https://cursor-vip.pro", "")
-                if not url: url = "/"
-            
+            desc = p.get('description', '')[:60] + '...' if len(p.get('description', '')) > 60 else p.get('description', '')
+            url = p.get('url', '#').replace("https://cursor-vip.pro", "") or "/"
             date = p.get('date', '')
             tag = p.get('tag', 'Tech')
             if tag: tags.add(tag)
-            
             icon = self._get_icon(title)
             
             posts_data.append({
-                "title": title,
-                "desc": desc,
-                "url": url,
-                "date": date,
-                "tag": tag,
-                "icon": icon
+                "title": title, "desc": desc, "url": url,
+                "date": date, "tag": tag, "icon": icon
             })
             
-        # Sort tags
         sorted_tags = sorted(list(tags))
 
-        # 3. Inject Structure (Container for React-like behavior)
-        # We need:
-        # - Category Nav Container
-        # - Posts Grid Container (already 'container')
-        # - Pagination Container
-        
-        # 3. Inject Structure with Pre-rendered Content (SSR for SEO/Preview)
-        
         # --- Pre-render Category Nav ---
-        cat_buttons = []
-        # 'All' button (Active)
-        cat_buttons.append(f'<button onclick="window.setCategory(\'全部\')" class="px-4 py-2 rounded-full text-sm font-medium transition bg-blue-600 text-white shadow-lg shadow-blue-500/25">全部</button>')
-        # Other buttons (Inactive)
+        cat_buttons = [f'<button onclick="window.setCategory(\'全部\')" class="px-4 py-2 rounded-full text-sm font-medium transition bg-blue-600 text-white shadow-lg shadow-blue-500/25">全部</button>']
         for tag in sorted_tags:
              cat_buttons.append(f'<button onclick="window.setCategory(\'{tag}\')" class="px-4 py-2 rounded-full text-sm font-medium transition bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5">{tag}</button>')
         
-        cat_inner_html = "\n".join(cat_buttons)
-        
-        # Create Category Nav placeholder
         cat_nav = self.soup.find(id="category-nav")
-        if cat_nav:
-            cat_nav.decompose()
-            
-        cat_html = f'<div id="category-nav" class="flex flex-wrap gap-2 mb-12 justify-center">{cat_inner_html}</div>'
-        cat_soup = BeautifulSoup(cat_html, 'html.parser')
-        container.insert_before(cat_soup)
+        if cat_nav: cat_nav.decompose()
+        cat_html = f'<div id="category-nav" class="flex flex-wrap gap-2 mb-12 justify-center">{"".join(cat_buttons)}</div>'
+        container.insert_before(BeautifulSoup(cat_html, 'html.parser'))
         
         # --- Pre-render Posts (Page 1) ---
-        container.clear()
         posts_per_page = 6
         page_1_posts = posts_data[:posts_per_page]
         
@@ -694,7 +546,6 @@ class ContentInjector:
              container.append(BeautifulSoup('<div class="col-span-full text-center text-slate-500 py-20">暂无文章</div>', 'html.parser'))
         else:
              for post in page_1_posts:
-                 # Re-construct card HTML (must match JS template)
                  card_html = f"""
                  <a href="{post['url']}" class="block group">
                   <article class="glass-card h-full rounded-2xl overflow-hidden flex flex-col">
@@ -704,27 +555,15 @@ class ContentInjector:
                      <i class="fa-solid {post['icon']} text-6xl text-blue-500/20 group-hover:text-blue-500/40 transition duration-500"></i>
                     </div>
                     <div class="absolute top-4 left-4">
-                     <span class="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/20 text-blue-300 text-xs font-mono">
-                      {post['tag']}
-                     </span>
+                     <span class="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/20 text-blue-300 text-xs font-mono">{post['tag']}</span>
                     </div>
                    </div>
                    <div class="p-6 flex flex-col flex-grow">
-                    <h2 class="text-xl font-bold text-white mb-3 group-hover:text-blue-400 transition">
-                     {post['title']}
-                    </h2>
-                    <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow">
-                     {post['desc']}
-                    </p>
+                    <h2 class="text-xl font-bold text-white mb-3 group-hover:text-blue-400 transition">{post['title']}</h2>
+                    <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow">{post['desc']}</p>
                     <div class="flex items-center justify-between text-xs text-slate-500 border-t border-white/5 pt-4">
-                     <div class="flex items-center gap-2">
-                      <i class="fa-regular fa-calendar"></i>
-                      <span>{post['date']}</span>
-                     </div>
-                     <div class="flex items-center gap-1 group-hover:translate-x-1 transition">
-                      <span>阅读全文</span>
-                      <i class="fa-solid fa-arrow-right"></i>
-                     </div>
+                     <div class="flex items-center gap-2"><i class="fa-regular fa-calendar"></i><span>{post['date']}</span></div>
+                     <div class="flex items-center gap-1 group-hover:translate-x-1 transition"><span>阅读全文</span><i class="fa-solid fa-arrow-right"></i></div>
                     </div>
                    </div>
                   </article>
@@ -734,30 +573,22 @@ class ContentInjector:
 
         # --- Pre-render Pagination ---
         pag_nav = self.soup.find(id="pagination")
-        if pag_nav:
-            pag_nav.decompose()
-            
+        if pag_nav: pag_nav.decompose()
+        
         total_pages = math.ceil(len(posts_data) / posts_per_page)
         pag_inner_html = ""
-        
         if total_pages > 1:
-            # Page 1 is active
             pag_inner_html += f'<button onclick="window.setPage(1)" class="w-10 h-10 flex items-center justify-center rounded-full text-sm font-medium transition bg-blue-600 text-white shadow-lg shadow-blue-500/25">1</button>'
-            
             for i in range(2, total_pages + 1):
-                if i <= 3: # Show first few
+                if i <= 3:
                      pag_inner_html += f'<button onclick="window.setPage({i})" class="w-10 h-10 flex items-center justify-center rounded-full text-sm font-medium transition bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5">{i}</button>'
                 elif i == 4 and total_pages > 4:
                      pag_inner_html += '<span class="w-10 h-10 flex items-center justify-center text-slate-600">...</span>'
-            
-            # Next button
             pag_inner_html += f'<button onclick="window.setPage(2)" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5 transition"><i class="fa-solid fa-chevron-right text-xs"></i></button>'
 
         pag_html = f'<div id="pagination" class="flex justify-center items-center gap-2 mt-16">{pag_inner_html}</div>'
-        pag_soup = BeautifulSoup(pag_html, 'html.parser')
-        container.insert_after(pag_soup)
+        container.insert_after(BeautifulSoup(pag_html, 'html.parser'))
             
-        # 4. Inject Data & Script
         script_content = f"""
         const BLOG_DATA = {json.dumps(posts_data, ensure_ascii=False)};
         const BLOG_TAGS = {json.dumps(sorted_tags, ensure_ascii=False)};
@@ -766,13 +597,10 @@ class ContentInjector:
             const postsPerPage = 6;
             let currentPage = 1;
             let currentCategory = '全部';
-            
-            // DOM Elements
             const container = document.getElementById('blog-posts-container');
             const catNav = document.getElementById('category-nav');
             const pagNav = document.getElementById('pagination');
             
-            // Initialize from URL params
             function initState() {{
                 const params = new URLSearchParams(window.location.search);
                 currentCategory = params.get('category') || '全部';
@@ -780,14 +608,8 @@ class ContentInjector:
                 render();
             }}
             
-            // Render Functions
             function render() {{
-                // 1. Filter
-                const filtered = currentCategory === '全部' 
-                    ? BLOG_DATA 
-                    : BLOG_DATA.filter(p => p.tag === currentCategory);
-                    
-                // 2. Pagination Logic
+                const filtered = currentCategory === '全部' ? BLOG_DATA : BLOG_DATA.filter(p => p.tag === currentCategory);
                 const totalPages = Math.ceil(filtered.length / postsPerPage);
                 if (currentPage > totalPages) currentPage = 1;
                 if (currentPage < 1) currentPage = 1;
@@ -795,23 +617,15 @@ class ContentInjector:
                 const start = (currentPage - 1) * postsPerPage;
                 const pagePosts = filtered.slice(start, start + postsPerPage);
                 
-                // 3. Render Posts
                 renderPosts(pagePosts);
-                
-                // 4. Render Categories
                 renderCategories();
-                
-                // 5. Render Pagination
                 renderPagination(totalPages);
                 
-                // 6. Update URL (without reload)
                 const newUrl = new URL(window.location);
                 if (currentCategory !== '全部') newUrl.searchParams.set('category', currentCategory);
                 else newUrl.searchParams.delete('category');
-                
                 if (currentPage > 1) newUrl.searchParams.set('page', currentPage);
                 else newUrl.searchParams.delete('page');
-                
                 window.history.replaceState({{}}, '', newUrl);
             }}
             
@@ -820,7 +634,6 @@ class ContentInjector:
                     container.innerHTML = '<div class="col-span-full text-center text-slate-500 py-20">暂无文章</div>';
                     return;
                 }}
-                
                 container.innerHTML = posts.map(post => `
                     <a href="${{post.url}}" class="block group">
                       <article class="glass-card h-full rounded-2xl overflow-hidden flex flex-col">
@@ -830,27 +643,15 @@ class ContentInjector:
                          <i class="fa-solid ${{post.icon}} text-6xl text-blue-500/20 group-hover:text-blue-500/40 transition duration-500"></i>
                         </div>
                         <div class="absolute top-4 left-4">
-                         <span class="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/20 text-blue-300 text-xs font-mono">
-                          ${{post.tag}}
-                         </span>
+                         <span class="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/20 text-blue-300 text-xs font-mono">${{post.tag}}</span>
                         </div>
                        </div>
                        <div class="p-6 flex flex-col flex-grow">
-                        <h2 class="text-xl font-bold text-white mb-3 group-hover:text-blue-400 transition">
-                         ${{post.title}}
-                        </h2>
-                        <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow">
-                         ${{post.desc}}
-                        </p>
+                        <h2 class="text-xl font-bold text-white mb-3 group-hover:text-blue-400 transition">${{post.title}}</h2>
+                        <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow">${{post.desc}}</p>
                         <div class="flex items-center justify-between text-xs text-slate-500 border-t border-white/5 pt-4">
-                         <div class="flex items-center gap-2">
-                          <i class="fa-regular fa-calendar"></i>
-                          <span>${{post.date}}</span>
-                         </div>
-                         <div class="flex items-center gap-1 group-hover:translate-x-1 transition">
-                          <span>阅读全文</span>
-                          <i class="fa-solid fa-arrow-right"></i>
-                         </div>
+                         <div class="flex items-center gap-2"><i class="fa-regular fa-calendar"></i><span>${{post.date}}</span></div>
+                         <div class="flex items-center gap-1 group-hover:translate-x-1 transition"><span>阅读全文</span><i class="fa-solid fa-arrow-right"></i></div>
                         </div>
                        </div>
                       </article>
@@ -860,222 +661,62 @@ class ContentInjector:
             
             function renderCategories() {{
                 const allActive = currentCategory === '全部' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5';
-                
-                let html = `
-                    <button onclick="window.setCategory('全部')" class="px-4 py-2 rounded-full text-sm font-medium transition ${{allActive}}">
-                        全部
-                    </button>
-                `;
-                
+                let html = `<button onclick="window.setCategory('全部')" class="px-4 py-2 rounded-full text-sm font-medium transition ${{allActive}}">全部</button>`;
                 BLOG_TAGS.forEach(tag => {{
                     const isActive = currentCategory === tag;
                     const cls = isActive ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5';
-                    html += `
-                        <button onclick="window.setCategory('${{tag}}')" class="px-4 py-2 rounded-full text-sm font-medium transition ${{cls}}">
-                            ${{tag}}
-                        </button>
-                    `;
+                    html += `<button onclick="window.setCategory('${{tag}}')" class="px-4 py-2 rounded-full text-sm font-medium transition ${{cls}}">${{tag}}</button>`;
                 }});
-                
                 catNav.innerHTML = html;
             }}
             
             function renderPagination(totalPages) {{
-                if (totalPages <= 1) {{
-                    pagNav.innerHTML = '';
-                    return;
-                }}
-                
+                if (totalPages <= 1) {{ pagNav.innerHTML = ''; return; }}
                 let html = '';
-                
-                // Prev
-                if (currentPage > 1) {{
-                    html += `
-                    <button onclick="window.setPage(${{currentPage - 1}})" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5 transition">
-                        <i class="fa-solid fa-chevron-left text-xs"></i>
-                    </button>
-                    `;
-                }}
-                
-                // Pages
+                if (currentPage > 1) html += `<button onclick="window.setPage(${{currentPage - 1}})" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5 transition"><i class="fa-solid fa-chevron-left text-xs"></i></button>`;
                 for (let i = 1; i <= totalPages; i++) {{
                     if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {{
                         const isActive = i === currentPage;
                         const cls = isActive ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5';
-                        html += `
-                        <button onclick="window.setPage(${{i}})" class="w-10 h-10 flex items-center justify-center rounded-full text-sm font-medium transition ${{cls}}">
-                            ${{i}}
-                        </button>
-                        `;
-                    }} else if (i === 2 && currentPage > 3) {{
-                         html += '<span class="w-10 h-10 flex items-center justify-center text-slate-600">...</span>';
-                    }} else if (i === totalPages - 1 && currentPage < totalPages - 2) {{
-                         html += '<span class="w-10 h-10 flex items-center justify-center text-slate-600">...</span>';
-                    }}
+                        html += `<button onclick="window.setPage(${{i}})" class="w-10 h-10 flex items-center justify-center rounded-full text-sm font-medium transition ${{cls}}">${{i}}</button>`;
+                    }} else if (i === 2 && currentPage > 3) html += '<span class="w-10 h-10 flex items-center justify-center text-slate-600">...</span>';
+                    else if (i === totalPages - 1 && currentPage < totalPages - 2) html += '<span class="w-10 h-10 flex items-center justify-center text-slate-600">...</span>';
                 }}
-                
-                // Next
-                if (currentPage < totalPages) {{
-                    html += `
-                    <button onclick="window.setPage(${{currentPage + 1}})" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5 transition">
-                        <i class="fa-solid fa-chevron-right text-xs"></i>
-                    </button>
-                    `;
-                }}
-                
+                if (currentPage < totalPages) html += `<button onclick="window.setPage(${{currentPage + 1}})" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-800/50 text-slate-400 hover:bg-slate-800 hover:text-white border border-white/5 transition"><i class="fa-solid fa-chevron-right text-xs"></i></button>`;
                 pagNav.innerHTML = html;
             }}
             
-            // Expose Global Actions
-            window.setCategory = (cat) => {{
-                currentCategory = cat;
-                currentPage = 1;
-                render();
-            }};
+            window.setCategory = (cat) => {{ currentCategory = cat; currentPage = 1; render(); }};
+            window.setPage = (p) => {{ currentPage = p; render(); document.getElementById('category-nav').scrollIntoView({{ behavior: 'smooth' }}); }};
             
-            window.setPage = (p) => {{
-                currentPage = p;
-                render();
-                // Scroll to top of list
-                document.getElementById('category-nav').scrollIntoView({{ behavior: 'smooth' }});
-            }};
-            
-            // Start
             initState();
-            
-            // Handle browser back/forward
             window.addEventListener('popstate', initState);
-            
         }})();
         """
-        
-        # Inject Script
         script_tag = self.soup.new_tag('script')
         script_tag.string = script_content
-        
-        # Append to body
         self.soup.body.append(script_tag)
-
-        if not container: return
-        
-        container.clear()
-        
-        for post in posts:
-             # Skip the index page itself
-             if post['url'].endswith('/index') or 'index.html' in post['url']: continue
-             
-             # Default values
-             title = post.get('title', 'Untitled')
-             # Clean title (remove suffix)
-             if " - " in title:
-                 title = title.split(" - ")[0]
-             
-             desc = post.get('description', '')
-             url = post.get('url', '#')
-             
-             # Convert to root-relative path if internal
-             if url.startswith("https://cursor-vip.pro"):
-                 url = url.replace("https://cursor-vip.pro", "")
-                 if not url: url = "/"
-             
-             date = post.get('date', '')
-             tag = post.get('tag', 'Tech')
-             
-             # Icon mapping using hash
-             icon = self._get_icon(title)
-             
-             # Simple truncate description
-             if len(desc) > 60: desc = desc[:60] + '...'
-             
-             html = f"""
-             <a href="{url}" class="block group">
-              <article class="glass-card h-full rounded-2xl overflow-hidden flex flex-col">
-               <div class="h-48 bg-slate-900/50 relative overflow-hidden">
-                <div class="absolute inset-0 bg-gradient-to-br from-blue-900/40 to-slate-900">
-                </div>
-                <div class="absolute inset-0 flex items-center justify-center">
-                 <i class="fa-solid {icon} text-6xl text-blue-500/20 group-hover:text-blue-500/40 transition duration-500">
-                 </i>
-                </div>
-                <div class="absolute top-4 left-4">
-                 <span class="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/20 text-blue-300 text-xs font-mono">
-                  {tag}
-                 </span>
-                </div>
-               </div>
-               <div class="p-6 flex flex-col flex-grow">
-                <h2 class="text-xl font-bold text-white mb-3 group-hover:text-blue-400 transition">
-                 {title}
-                </h2>
-                <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow">
-                 {desc}
-                </p>
-                <div class="flex items-center justify-between text-xs text-slate-500 border-t border-white/5 pt-4">
-                 <div class="flex items-center gap-2">
-                  <i class="fa-regular fa-calendar">
-                  </i>
-                  <span>
-                   {date}
-                  </span>
-                 </div>
-                 <div class="flex items-center gap-1 group-hover:translate-x-1 transition">
-                  <span>
-                   阅读全文
-                  </span>
-                  <i class="fa-solid fa-arrow-right">
-                  </i>
-                 </div>
-                </div>
-               </div>
-              </article>
-             </a>
-             """
-             card_soup = BeautifulSoup(html, 'html.parser')
-             container.append(card_soup)
 
     def inject_latest_posts(self, posts):
         container = self.soup.find(id="latest-posts-container")
         if not container: return
-
-        # Clear existing content
         container.clear()
-
-        # Generate HTML for posts
-        for post in posts[:6]: # Limit to 6
-            # Default values
+        for post in posts[:6]:
             title = post.get('title', 'Untitled')
-            desc = post.get('description', '')
-            url = post.get('url', '#')
-            
-            # Convert to root-relative path if internal
-            if url.startswith("https://cursor-vip.pro"):
-                url = url.replace("https://cursor-vip.pro", "")
-                if not url: url = "/"
-            
+            desc = post.get('description', '')[:60] + '...' if len(post.get('description', '')) > 60 else post.get('description', '')
+            url = post.get('url', '#').replace("https://cursor-vip.pro", "") or "/"
             date = post.get('date', '')
             tag = post.get('tag', 'Tech')
-            
-            # Simple truncate description
-            if len(desc) > 60: desc = desc[:60] + '...'
-
             html = f"""
             <a href="{url}" class="block group">
              <article class="glass-card h-full rounded-2xl overflow-hidden flex flex-col bg-[#0B0F19] border border-white/10 hover:border-blue-500/30 transition duration-300">
               <div class="p-6 flex flex-col flex-grow">
                <div class="flex items-center justify-between mb-4">
-                <span class="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono">
-                 {tag}
-                </span>
-                <span class="text-xs text-slate-500 font-mono">
-                 {date}
-                </span>
+                <span class="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono">{tag}</span>
+                <span class="text-xs text-slate-500 font-mono">{date}</span>
                </div>
-               <h3 class="text-lg font-bold text-white mb-3 group-hover:text-blue-400 transition line-clamp-2">
-                {title}
-               </h3>
-               <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow line-clamp-3">
-                {desc}
-               </p>
+               <h3 class="text-lg font-bold text-white mb-3 group-hover:text-blue-400 transition line-clamp-2">{title}</h3>
+               <p class="text-sm text-slate-400 leading-relaxed mb-6 flex-grow line-clamp-3">{desc}</p>
                <div class="flex items-center gap-2 text-xs text-slate-500 group-hover:text-blue-400 transition mt-auto">
                 <span>Read Article</span>
                 <i class="fa-solid fa-arrow-right group-hover:translate-x-1 transition-transform"></i>
@@ -1084,8 +725,7 @@ class ContentInjector:
              </article>
             </a>
             """
-            card_soup = BeautifulSoup(html, 'html.parser')
-            container.append(card_soup)
+            container.append(BeautifulSoup(html, 'html.parser'))
 
 class SitemapGenerator:
     def __init__(self, base_url="https://cursor-vip.pro"):
@@ -1093,49 +733,26 @@ class SitemapGenerator:
         self.urls = []
 
     def add_url(self, url, priority=0.8, lastmod=None):
-        if not lastmod:
-            lastmod = datetime.date.today().isoformat()
-            
-        self.urls.append({
-            "loc": url,
-            "lastmod": lastmod,
-            "priority": priority
-        })
+        if not lastmod: lastmod = datetime.date.today().isoformat()
+        self.urls.append({"loc": url, "lastmod": lastmod, "priority": priority})
 
     def generate(self, output_path):
-        xml = ['<?xml version="1.0" encoding="UTF-8"?>']
-        xml.append('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
-        
+        xml = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
         for u in self.urls:
-            xml.append('  <url>')
-            xml.append(f'    <loc>{u["loc"]}</loc>')
-            xml.append(f'    <lastmod>{u["lastmod"]}</lastmod>')
-            xml.append('    <changefreq>weekly</changefreq>')
-            xml.append(f'    <priority>{u["priority"]}</priority>')
-            xml.append('  </url>')
-            
+            xml.append(f'  <url>\n    <loc>{u["loc"]}</loc>\n    <lastmod>{u["lastmod"]}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>{u["priority"]}</priority>\n  </url>')
         xml.append('</urlset>')
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(xml))
+        with open(output_path, 'w', encoding='utf-8') as f: f.write('\n'.join(xml))
 
 class RobotsGenerator:
     def __init__(self, base_url="https://cursor-vip.pro"):
         self.base_url = base_url
 
     def generate(self, output_path):
-        content = f"""User-agent: *
-Allow: /
-
-Sitemap: {self.base_url}/sitemap.xml
-"""
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(content)
+        content = f"User-agent: *\nAllow: /\n\nSitemap: {self.base_url}/sitemap.xml\n"
+        with open(output_path, 'w', encoding='utf-8') as f: f.write(content)
 
 def main():
     print("🚀 Starting Build Process...")
-    
-    # 1. Smart Extraction
     if not os.path.exists(INDEX_FILE):
         print(f"❌ Error: {INDEX_FILE} not found.")
         return
@@ -1146,57 +763,31 @@ def main():
     footer = extractor.get_footer()
     favicons = extractor.get_favicons()
     
-    print(f"✅ Extracted Nav, Footer, and {len(favicons)} Favicons.")
-
-    # 2. Process Blog Posts
-    if not os.path.exists(BLOG_DIR):
-        # print(f"⚠️ Warning: {BLOG_DIR} does not exist. Creating it...")
-        os.makedirs(BLOG_DIR, exist_ok=True)
-        # Create a dummy post for testing - REMOVED per user request
-        # with open(os.path.join(BLOG_DIR, 'hello-world.html'), 'w') as f:
-        #    f.write("""<!DOCTYPE html><html><head><title>Hello World</title></head><body><article><h1>Hello World</h1><p>Content...</p></article></body></html>""")
-
+    if not os.path.exists(BLOG_DIR): os.makedirs(BLOG_DIR, exist_ok=True)
     blog_files = glob.glob(os.path.join(BLOG_DIR, '*.html'))
-    
-    # Add root level static pages
     static_pages = ['index.html', 'about.html', 'privacy.html', 'terms.html', 'refund.html']
     root_files = [os.path.join(ROOT_DIR, f) for f in static_pages if os.path.exists(os.path.join(ROOT_DIR, f))]
-    
     all_files = blog_files + root_files
-    print(f"📂 Found {len(all_files)} files to process ({len(blog_files)} blog posts, {len(root_files)} static pages).")
+    print(f"📂 Found {len(all_files)} files to process.")
 
     latest_posts = []
     processed_files = []
 
-    # Phase 1: Extraction & Metadata Collection
     for post_path in all_files:
         is_index = os.path.basename(post_path) == 'index.html'
-        print(f"🔨 Extracting metadata from {os.path.basename(post_path)}...")
-        
-        with open(post_path, 'r', encoding='utf-8') as f:
-            soup = BeautifulSoup(f, 'html.parser')
-
-        # CLEAN UP LINKS IN CONTENT (Not just Nav/Footer)
+        with open(post_path, 'r', encoding='utf-8') as f: soup = BeautifulSoup(f, 'html.parser')
         extractor._standardize_links(soup)
 
-        # Metadata extraction (simple version)
         title_tag_find = soup.find('title')
         title = title_tag_find.get_text().strip() if title_tag_find else "Untitled"
-        
-        # Clean Title Globally (Remove Suffix if user doesn't want it)
-        # User requested to remove "- Cursor-VIP.pro"
-        if " - Cursor-VIP.pro" in title:
-            title = title.replace(" - Cursor-VIP.pro", "")
-
-        # Clean Title: Remove leading numbers (e.g. "1. xxx" -> "xxx")
-        title = re.sub(r'^\d+\.?\s*', '', title)
+        if " - Cursor-VIP.pro" in title: title = title.replace(" - Cursor-VIP.pro", "")
+        title = re.sub(r'^\d+[.、\s]*\s*', '', title)
+        title = re.sub(r'\s?202[0-9]\s?', '', title)
             
-        # Try to find description meta, or use first p tag
         desc_tag = soup.find('meta', attrs={"name": "description"})
         description = desc_tag['content'] if desc_tag else "Cursor VIP Service."
         
         filename = os.path.basename(post_path)
-        page_type = 'static'
         if BLOG_DIR in post_path:
             url = f"https://cursor-vip.pro/blog/{filename.replace('.html', '')}"
             page_type = 'blog'
@@ -1206,177 +797,137 @@ def main():
                 page_type = 'home'
             else:
                 url = f"https://cursor-vip.pro/{filename.replace('.html', '')}"
+                page_type = 'static'
 
-        metadata = {
-            "title": title,
-            "description": description,
-            "keywords": "cursor, ai, code editor", # Default keywords
-            "url": url,
-            "type": page_type
-        }
-
+        metadata = {"title": title, "description": description, "keywords": "cursor, ai, code editor", "url": url, "type": page_type}
+        
         # Date extraction
-        date_published = datetime.date.today().isoformat()
-        json_ld_scripts = soup.find_all('script', type='application/ld+json')
-        for script in json_ld_scripts:
+        # Priority 1: Meta Tag "article:published_time" (Manual Control) - Highest Priority
+        # Priority 2: JSON-LD "datePublished" (Manual Control)
+        # Priority 3: Git Creation Date (Historical Reality)
+        # Priority 4: Today (Fallback)
+        
+        date_published = None
+        
+        # 1. Check Meta Tag (Manual Override)
+        meta_date = soup.find('meta', property='article:published_time')
+        if meta_date and meta_date.get('content'):
+            date_published = meta_date['content']
+            
+        # 2. Check JSON-LD (if not found in meta)
+        if not date_published:
+            json_ld_scripts = soup.find_all('script', type='application/ld+json')
+            for script in json_ld_scripts:
+                try:
+                    if script.string:
+                        data = json.loads(script.string)
+                        if isinstance(data, dict) and data.get('datePublished'):
+                            date_published = data.get('datePublished')
+                        elif isinstance(data, list):
+                             for item in data:
+                                 if item.get('datePublished'):
+                                     date_published = item.get('datePublished')
+                                     break
+                    if date_published: break
+                except:
+                    pass
+        
+        # 3. Fallback to Git Creation Date
+        if not date_published:
+             date_published = get_post_date(post_path)
+             
+        # Get Last Modified Date for Sitemap
+        date_modified = get_last_modified_date(post_path)
+        
+        # 4. Git History Check (Smart Suppression)
+        # If Git Last Modified is '2026-02-03' or '2026-02-04' (Batch Fix Dates),
+        # AND the article is older than Feb 1st, suppress the modification date in Sitemap.
+        # This ensures sitemap looks historically accurate for old posts,
+        # while allowing FUTURE updates (after Feb 5th) to trigger a new lastmod.
+        
+        if date_modified in ['2026-02-03', '2026-02-04']:
             try:
-                data = json.loads(script.string)
-                if isinstance(data, list):
-                    for item in data:
-                         if item.get('datePublished'):
-                             date_published = item.get('datePublished')
-                             break
-                elif data.get('datePublished'):
-                    date_published = data.get('datePublished')
+                pub_dt = datetime.datetime.strptime(date_published, "%Y-%m-%d")
+                # If published before Feb 1st, and modified in batch fix window -> use published date
+                if pub_dt < datetime.datetime(2026, 2, 1):
+                    date_modified = date_published
             except:
                 pass
+             
+        print(f"   📅 Date: {date_published} (Published), {date_modified} (Modified)")
         
-        # Tag extraction
         tag = "技术干货"
-        # Search for tag using reliable structural classes (font-mono + rounded-full)
-        # We search in both div and span
         tag_elem = soup.find(['span', 'div'], class_=lambda x: x and 'font-mono' in x and 'rounded-full' in x)
-        
         if tag_elem:
-            tag = tag_elem.get_text().strip()
+            raw_tag = tag_elem.get_text().strip()
+            tag = TAG_MAPPING.get(raw_tag, raw_tag)
 
-        # Update Metadata with Date and Author
         metadata["date"] = date_published
         metadata["author"] = "Cursor-VIP Team"
+        latest_posts.append({"title": title, "description": description, "url": url, "date": date_published, "lastmod": date_modified, "tag": tag, "type": page_type})
+        processed_files.append({"path": post_path, "soup": soup, "metadata": metadata, "is_index": is_index, "page_type": page_type, "date_published": date_published, "title": title})
 
-        # Save to list (all pages for sitemap)
-        post_data = {
-            "title": title,
-            "description": description,
-            "url": url,
-            "date": date_published,
-            "tag": tag,
-            "type": page_type
-        }
-        latest_posts.append(post_data)
-        
-        # Store for Phase 2
-        processed_files.append({
-            "path": post_path,
-            "soup": soup,
-            "metadata": metadata,
-            "is_index": is_index,
-            "page_type": page_type,
-            "date_published": date_published,
-            "title": title
-        })
-
-    # Phase 2: Processing & Injection
     for item in processed_files:
-        post_path = item['path']
-        soup = item['soup']
-        metadata = item['metadata']
-        is_index = item['is_index']
-        page_type = item['page_type']
-        date_published = item['date_published']
-        title = item['title']
-        
-        print(f"⚙️ Processing {os.path.basename(post_path)}...")
-
-        # Head Reconstruction
-        reconstructor = HeadReconstructor(soup, metadata, favicons, latest_posts)
+        print(f"⚙️ Processing {os.path.basename(item['path'])}...")
+        reconstructor = HeadReconstructor(item['soup'], item['metadata'], favicons, latest_posts)
         reconstructor.reconstruct()
-
-        # Injection
-        injector = ContentInjector(soup)
+        injector = ContentInjector(item['soup'])
         injector.inject_nav(nav)
         injector.inject_footer(footer)
         
-        if is_index and page_type == 'home':
-             # Filter only blogs for homepage injection
+        if item['is_index'] and item['page_type'] == 'home':
              blog_posts = [p for p in latest_posts if p['type'] == 'blog' and not p['url'].endswith('/index') and 'index.html' not in p['url']]
              blog_posts.sort(key=lambda x: x['date'], reverse=True)
              injector.inject_latest_posts(blog_posts)
-        elif is_index and page_type == 'blog':
-             # 1. Prepare Data
+        elif item['is_index'] and item['page_type'] == 'blog':
              all_blog_posts = [p for p in latest_posts if p['type'] == 'blog' and not p['url'].endswith('/index') and 'index.html' not in p['url']]
              all_blog_posts.sort(key=lambda x: x['date'], reverse=True)
-             
-             # Inject SPA logic
              injector.inject_breadcrumbs("博客", is_blog_index=True)
              injector.inject_blog_app(all_blog_posts)
-             
-        elif not is_index:
-             if page_type == 'blog':
-                 injector.inject_breadcrumbs(title)
-                 injector.inject_article_meta(date_published)
-                 # Inject recommended reading (pass all posts and current url)
-                 injector.inject_recommended(latest_posts, metadata['url'])
+        elif not item['is_index']:
+             if item['page_type'] == 'blog':
+                 injector.inject_breadcrumbs(item['title'])
+                 injector.inject_article_meta(item['date_published'])
+                 injector.inject_recommended(latest_posts, item['metadata']['url'])
              else:
-                 injector.inject_recommended(latest_posts, metadata['url'])
+                 injector.inject_recommended(latest_posts, item['metadata']['url'])
 
-        # Save
-        with open(post_path, 'w', encoding='utf-8') as f:
-            f.write(str(soup.prettify()))
+        with open(item['path'], 'w', encoding='utf-8') as f:
+            # Using str() instead of prettify() to preserve formatting
+            f.write(str(item['soup']))
 
-    # 4. Global Update (Homepage Latest Articles)
-    # This part assumes there's a place to put them. For now, we'll just log it.
-    print("📋 Latest Articles updated (in memory).")
+    print("📋 Latest Articles updated.")
     
-    # Sort latest_posts to ensure homepage is first, then blog index, then others
     def sort_key(post):
         url = post['url']
-        
-        # Primary Sort: Page Type
-        if url == "https://cursor-vip.pro/": 
-            type_order = 0
-        elif url == "https://cursor-vip.pro/blog/" or url.endswith("/blog/index"): 
-            type_order = 1
-        elif "/blog/" in url: 
-            type_order = 2 # Articles
-        else: 
-            type_order = 3 # Static pages
-            
-        # Secondary Sort: Date (Newest First)
-        # We use negative timestamp to sort descending within the same type_order
+        if url == "https://cursor-vip.pro/": type_order = 0
+        elif url == "https://cursor-vip.pro/blog/" or url.endswith("/blog/index"): type_order = 1
+        elif "/blog/" in url: type_order = 2
+        else: type_order = 3
         try:
             date_str = post.get('date', '1970-01-01')
-            # Simple check for date format
-            if 'T' in date_str:
-                dt = datetime.datetime.fromisoformat(date_str)
-            else:
-                dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+            if 'T' in date_str: dt = datetime.datetime.fromisoformat(date_str)
+            else: dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
             timestamp = dt.timestamp()
-        except:
-            timestamp = 0
-            
+        except: timestamp = 0
         return (type_order, -timestamp)
 
     latest_posts.sort(key=sort_key)
-
     sitemap_gen = SitemapGenerator()
 
     for post in latest_posts:
-        print(f"   - {post['title']} ({post['url']})")
-        # Determine priority
-        if post['url'] == "https://cursor-vip.pro/" or post['url'].endswith("/index") or post['url'] == "https://cursor-vip.pro/blog/":
-            priority = 1.0 
-        elif "/blog/" in post['url']:
-            priority = 0.8
-        else:
-            priority = 0.8
-            
-        # Clean url for sitemap (ensure no index suffix for root)
+        if post['url'] == "https://cursor-vip.pro/" or post['url'].endswith("/index") or post['url'] == "https://cursor-vip.pro/blog/": priority = 1.0 
+        elif "/blog/" in post['url']: priority = 0.8
+        else: priority = 0.8
         sitemap_url = post['url']
-        if sitemap_url.endswith("/index"):
-            sitemap_url = sitemap_url[:-6] # remove /index
-            if not sitemap_url.endswith("/"): sitemap_url += "/" # ensure root has slash or not? usually https://domain.com
-        
-        # Use article date if available
-        sitemap_gen.add_url(sitemap_url, priority, post.get('date'))
+        if sitemap_url.endswith("/index"): sitemap_url = sitemap_url[:-6]
+        if not sitemap_url.endswith("/"): sitemap_url += "/"
+        sitemap_gen.add_url(sitemap_url, priority, post.get('lastmod', post.get('date')))
 
     print("🗺️ Generating sitemap.xml...")
     sitemap_gen.generate(os.path.join(ROOT_DIR, 'sitemap.xml'))
-    
     print("🤖 Generating robots.txt...")
-    robots_gen = RobotsGenerator()
-    robots_gen.generate(os.path.join(ROOT_DIR, 'robots.txt'))
-
+    RobotsGenerator().generate(os.path.join(ROOT_DIR, 'robots.txt'))
     print("✨ Build Complete!")
 
 if __name__ == "__main__":
